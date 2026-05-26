@@ -6,6 +6,13 @@ Check a domain's SPF, DKIM, DMARC, and MX records with analysis and visual alert
 
 https://muninn.ovh/maildns/
 
+## Note
+
+The project is intended for personal use and is currently localized in Italian.
+
+English translation and automatic language detection for localization will be implemented in the future.
+
+
 ## Requirements
 
 - Linux with PHP 7.4+ (tested on 8.x)
