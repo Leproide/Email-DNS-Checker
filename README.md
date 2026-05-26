@@ -23,12 +23,12 @@ maildns-check/
 ├── index.html            # UI
 ├── api.php               # backend (DNS queries + analysis)
 ├── README.md
-└── vendor/
+└── include/
     ├── pdfmake.min.js    # PDF library (bundled, no CDN)
     └── vfs_fonts.js      # Roboto font for pdfmake
 ```
 
-The files in `vendor/` are already included. No runtime download is needed, so it works offline and in air-gapped environments.
+The files in `include/` are already included. No runtime download is needed, so it works offline and in air-gapped environments.
 
 ## Deployment
 
@@ -142,7 +142,7 @@ curl -X POST http://localhost:8080/api.php   -F domain=example.com   -F eml=@mai
 This project includes third-party software:
 
 - **[pdfmake](https://github.com/bpampuch/pdfmake)** v0.2.10 by Bartek Pampuch and contributors, distributed under the **MIT** license. Client-side PDF report generation.
-  - Files: `vendor/pdfmake.min.js`, `vendor/vfs_fonts.js`
+  - Files: `include/pdfmake.min.js`, `include/vfs_fonts.js`
   - Website: [http://pdfmake.org](http://pdfmake.org)
 - **Roboto** font (included in pdfmake's vfs), Google Fonts, licensed under Apache 2.0.
 
