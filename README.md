@@ -2,6 +2,10 @@
 
 Check a domain's SPF, DKIM, DMARC, and MX records with analysis and visual alerts, plus PDF report generation.
 
+# Demo
+
+https://muninn.ovh/maildns/
+
 ## Requirements
 
 - Linux with PHP 7.4+ (tested on 8.x)
