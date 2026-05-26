@@ -1,0 +1,1575 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mail DNS Check · SPF / DKIM / DMARC / MX</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --bg-elev: #1a2028;
+    --bg-card: #1e2530;
+    --border: #2a3340;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent-2: #79c0ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --crit: #f85149;
+    --info: #6e7681;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fa;
+      --bg-elev: #ffffff;
+      --bg-card: #ffffff;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-dim: #656d76;
+      --accent: #0969da;
+      --accent-2: #0550ae;
+      --ok: #1a7f37;
+      --warn: #9a6700;
+      --crit: #cf222e;
+      --info: #656d76;
+    }
+  }
+  * { box-sizing: border-box; min-width: 0; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    font-size: 14px;
+  }
+  header {
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header h1::before { content: "📧"; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--text-dim); font-size: 13px; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
+  .form-card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .form-row { display: grid; grid-template-columns: 1fr 200px; gap: 12px; margin-bottom: 12px; }
+  .form-row.single { grid-template-columns: 1fr; }
+
+  /* Separatore "oppure" tra modalità dominio e modalità EML */
+  .or-divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 16px 0; color: var(--text-dim); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .or-divider::before, .or-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* File EML stilizzato come dropzone coerente col resto */
+  .eml-drop {
+    position: relative;
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--bg);
+    transition: border-color 0.15s, background 0.15s;
+    display: flex; align-items: center; gap: 14px;
+  }
+  /* Layer cliccabile per "scegli file": copre tutto tranne il bottone Rimuovi */
+  .eml-drop .file-input-layer {
+    position: absolute; inset: 0;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .eml-drop .file-input-layer input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .eml-drop:hover, .eml-drop.dragover { border-color: var(--accent); background: var(--bg-elev); }
+  /* I contenuti vanno sopra il layer di input per essere visibili */
+  .eml-drop .icon, .eml-drop .text { position: relative; z-index: 2; pointer-events: none; }
+  .eml-drop .icon { font-size: 28px; flex-shrink: 0; }
+  .eml-drop .text { flex: 1; min-width: 0; }
+  .eml-drop .title { font-weight: 600; color: var(--text); font-size: 14px; }
+  .eml-drop .desc  { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+  .eml-drop .desc code { background: var(--bg-elev); padding: 1px 5px; border-radius: 3px; }
+  /* Bottone Rimuovi: sopra il file input, riceve i click */
+  .eml-drop .clear-btn {
+    position: relative; z-index: 3;
+    background: var(--bg-elev); border: 1px solid var(--border); color: var(--text-dim);
+    padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+    flex-shrink: 0;
+  }
+  .eml-drop .clear-btn:hover { color: var(--crit); border-color: var(--crit); }
+  label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  input[type=text], input[type=file], textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  textarea { min-height: 60px; font-family: var(--mono); font-size: 13px; }
+  input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .advanced-toggle {
+    background: none; border: none; color: var(--accent); cursor: pointer;
+    font-size: 13px; padding: 0; margin-bottom: 8px;
+  }
+  .advanced { display: none; padding-top: 8px; border-top: 1px solid var(--border); margin-top: 12px; }
+  .advanced.open { display: block; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  button.primary, button.secondary {
+    color: white; border: none;
+    padding: 10px 20px; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 600;
+  }
+  button.primary { background: var(--accent); }
+  button.primary:hover { background: var(--accent-2); }
+  button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  button.secondary {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.secondary:hover { border-color: var(--accent); color: var(--accent); }
+  button.secondary:disabled { opacity: 0.6; cursor: not-allowed; }
+  .hint { color: var(--text-dim); font-size: 12px; }
+
+  .overall-banner {
+    padding: 14px 18px; border-radius: 10px; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 12px; font-weight: 500;
+    border: 1px solid var(--border);
+  }
+  .overall-banner.ok   { background: color-mix(in srgb, var(--ok) 12%, transparent); border-color: var(--ok); }
+  .overall-banner.warning { background: color-mix(in srgb, var(--warn) 12%, transparent); border-color: var(--warn); }
+  .overall-banner.critical { background: color-mix(in srgb, var(--crit) 12%, transparent); border-color: var(--crit); }
+  .overall-banner .icon { font-size: 24px; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px;
+  }
+  .card-header h2 {
+    margin: 0; font-size: 16px; font-weight: 600;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card-body { padding: 16px 18px; overflow: hidden; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .badge.ok   { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+  .badge.warning { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+  .badge.critical { background: color-mix(in srgb, var(--crit) 20%, transparent); color: var(--crit); }
+  .badge.info { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--text-dim); }
+  .badge.unknown { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--text-dim); }
+
+  .issue-list { margin: 0; padding: 0; list-style: none; }
+  .issue {
+    padding: 10px 12px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    border-left: 3px solid;
+    background: var(--bg-elev);
+    display: flex; gap: 10px; align-items: flex-start;
+  }
+  .issue.critical { border-left-color: var(--crit); }
+  .issue.warning  { border-left-color: var(--warn); }
+  .issue.info     { border-left-color: var(--info); }
+  .issue-icon { font-size: 16px; line-height: 1.2; flex-shrink: 0; }
+  .issue span:last-child { word-wrap: break-word; min-width: 0; }
+
+  .kv { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 6px 14px; margin: 0; }
+  .kv dt { color: var(--text-dim); font-size: 13px; }
+  .kv dd { margin: 0; font-family: var(--mono); font-size: 13px; word-break: break-all; min-width: 0; }
+
+  .record {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 10px 12px; border-radius: 6px;
+    font-family: var(--mono); font-size: 12.5px;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    margin-bottom: 8px;
+  }
+  .record .label-inline {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-family: inherit;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+
+  table.mx-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.mx-table th, table.mx-table td {
+    padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left;
+  }
+  table.mx-table th { color: var(--text-dim); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+  table.mx-table td { font-family: var(--mono); word-break: break-all; }
+
+  /* Tag chips: due varianti, short (in grid) e long (full-width con scroll) */
+  .tag-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .tag-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tag-chip .key { color: var(--text-dim); }
+  .tag-chip .val { color: var(--accent-2); }
+
+  /* Tag "lunghi": rua, ruf, p (DKIM) — box dedicato a tutta larghezza con scroll interno */
+  .tag-long-list { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .tag-long {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .tag-long-header {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    padding: 5px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .tag-long-header .count {
+    background: var(--accent);
+    color: white;
+    padding: 1px 7px;
+    border-radius: 10px;
+    font-size: 10px;
+  }
+  .tag-long-body {
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .tag-long-value {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--accent-2);
+    /* break-all gestisce stringhe lunghissime (chiavi DKIM, URI rua/ruf) andando a capo
+       invece di forzare lo scroll orizzontale e uscire dal contenitore */
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    padding: 4px 0;
+    border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+    line-height: 1.4;
+  }
+  .tag-long-value:last-child { border-bottom: none; }
+
+  .dkim-selector {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 12px; border-radius: 6px; margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .dkim-selector h4 {
+    margin: 0 0 8px; font-size: 14px;
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono);
+    flex-wrap: wrap;
+    word-break: break-all;
+  }
+
+  .alert-conflict {
+    background: color-mix(in srgb, var(--crit) 18%, transparent);
+    border: 2px solid var(--crit);
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 14px;
+    display: flex; gap: 12px; align-items: flex-start;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--crit) 40%, transparent); }
+    50%      { box-shadow: 0 0 0 8px transparent; }
+  }
+  .alert-conflict .icon { font-size: 28px; flex-shrink: 0; }
+  .alert-conflict strong { color: var(--crit); }
+  .alert-conflict > div { min-width: 0; word-wrap: break-word; }
+
+  .loader {
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%; width: 18px; height: 18px;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .meta-bar {
+    color: var(--text-dim); font-size: 12px;
+    margin-bottom: 16px; padding: 8px 12px;
+    background: var(--bg-elev); border-radius: 6px;
+    display: flex; gap: 18px; flex-wrap: wrap;
+  }
+  .meta-bar code { font-family: var(--mono); color: var(--text); }
+
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--text-dim); font-size: 13px; user-select: none; }
+  summary:hover { color: var(--accent); }
+
+  .error-msg {
+    background: color-mix(in srgb, var(--crit) 15%, transparent);
+    border: 1px solid var(--crit);
+    color: var(--crit);
+    padding: 12px; border-radius: 6px; margin-bottom: 16px;
+  }
+
+  /* PDF download bar */
+  .pdf-bar {
+    margin-top: 24px;
+    padding: 16px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* Nota informativa tecnica (es. spiegazione trailing dot FQDN) */
+  .info-note {
+    margin-top: 20px;
+    padding: 14px 16px;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.55;
+    display: flex; align-items: flex-start; gap: 12px;
+  }
+  .info-note .info-note-icon { font-size: 18px; flex-shrink: 0; line-height: 1.3; }
+  .info-note strong { color: var(--text); }
+  .info-note code {
+    font-family: var(--mono); font-size: 12px;
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+    color: var(--accent-2);
+  }
+  .info-note em { font-style: italic; color: var(--text); }
+
+
+  @media (max-width: 700px) {
+    .form-row { grid-template-columns: 1fr; }
+    .kv { grid-template-columns: 1fr; }
+    main { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mail DNS Check</h1>
+  <p>Verifica SPF · DKIM · DMARC · MX con analisi dettagliata</p>
+</header>
+
+<main id="main">
+  <form id="check-form" class="form-card">
+    <div class="form-row">
+      <div>
+        <label for="domain">Dominio</label>
+        <input type="text" id="domain" name="domain" placeholder="esempio.it" autocomplete="off">
+      </div>
+      <div>
+        <label for="resolver">DNS Resolver</label>
+        <input type="text" id="resolver" name="resolver" value="1.1.1.1">
+      </div>
+    </div>
+
+    <div class="or-divider">oppure</div>
+
+    <label>Carica un file .eml (rileva automaticamente dominio e selettori)</label>
+    <div class="eml-drop" id="eml-drop">
+      <label class="file-input-layer" for="eml" aria-label="Seleziona file EML">
+        <input type="file" id="eml" name="eml" accept=".eml,message/rfc822,text/plain">
+      </label>
+      <span class="icon">📎</span>
+      <div class="text" id="eml-text">
+        <div class="title">Trascina qui un .eml oppure clicca per selezionarlo</div>
+        <div class="desc">Verranno estratti il dominio dal mittente e i selettori DKIM dagli header DKIM-Signature</div>
+      </div>
+      <button type="button" class="clear-btn" id="eml-clear" style="display:none">Rimuovi</button>
+    </div>
+
+    <button type="button" class="advanced-toggle" id="adv-toggle" style="margin-top:14px">▸ Opzioni avanzate</button>
+    <div class="advanced" id="adv-panel">
+      <div class="form-row single">
+        <div>
+          <label for="selectors">Selettori DKIM custom (opzionale, separati da virgola o spazio)</label>
+          <textarea id="selectors" name="selectors" placeholder="selector1, selector2, google&#10;(vuoto = lista provider noti, o estratti dall'EML se caricato)"></textarea>
+          <div class="hint">Lascia vuoto per provare circa 60 selettori dei provider più comuni (M365, Google, ESP).</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="primary" id="submit-btn">Analizza</button>
+      <span id="status-text" class="hint"></span>
+    </div>
+  </form>
+
+  <div id="result"></div>
+</main>
+
+<!-- html2pdf.js, caricato solo quando si clicca su Scarica PDF -->
+<script>
+const $ = (s) => document.querySelector(s);
+
+let lastReportData = null;
+let parsedEmlData = null; // { domain, selectors, content }
+
+$('#adv-toggle').addEventListener('click', () => {
+  const p = $('#adv-panel');
+  p.classList.toggle('open');
+  $('#adv-toggle').textContent = p.classList.contains('open') ? '▾ Opzioni avanzate' : '▸ Opzioni avanzate';
+});
+
+// ---------- EML drop zone ----------
+const dropEl = $('#eml-drop');
+const fileEl = $('#eml');
+const emlClearBtn = $('#eml-clear');
+const emlText = $('#eml-text');
+
+['dragenter','dragover'].forEach(ev => dropEl.addEventListener(ev, e => {
+  e.preventDefault(); dropEl.classList.add('dragover');
+}));
+['dragleave','drop'].forEach(ev => dropEl.addEventListener(ev, e => {
+  e.preventDefault(); dropEl.classList.remove('dragover');
+}));
+dropEl.addEventListener('drop', e => {
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+    fileEl.files = e.dataTransfer.files;
+    handleEmlFile(fileEl.files[0]);
+  }
+});
+fileEl.addEventListener('change', () => {
+  if (fileEl.files[0]) handleEmlFile(fileEl.files[0]);
+});
+emlClearBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  fileEl.value = '';
+  parsedEmlData = null;
+  emlText.innerHTML = `
+    <div class="title">Trascina qui un .eml oppure clicca per selezionarlo</div>
+    <div class="desc">Verranno estratti il dominio dal mittente e i selettori DKIM dagli header DKIM-Signature</div>`;
+  emlClearBtn.style.display = 'none';
+});
+
+async function handleEmlFile(file) {
+  try {
+    if (file.size > 5_000_000) {
+      alert('File EML troppo grande (massimo 5 MB).');
+      fileEl.value = ''; return;
+    }
+    // leggiamo solo i primi 256 KB: gli header sono sempre all'inizio
+    const headBlob = file.slice(0, 262144);
+    const content = await headBlob.text();
+    const parsed = parseEmlHeaders(content);
+    parsedEmlData = { file, ...parsed };
+
+    let dom = parsed.domain || '(non rilevato)';
+    let sels = parsed.selectors.length ? parsed.selectors.join(', ') : '(nessuno trovato)';
+    emlText.innerHTML = `
+      <div class="title">📧 ${escapeHtml(file.name)}</div>
+      <div class="desc">Dominio rilevato: <code style="color:var(--accent)">${escapeHtml(dom)}</code> · Selettori DKIM: <code style="color:var(--accent)">${escapeHtml(sels)}</code></div>`;
+    emlClearBtn.style.display = '';
+
+    // autofill dominio se vuoto o se l'utente non lo ha toccato esplicitamente
+    if (parsed.domain && !$('#domain').value.trim()) {
+      $('#domain').value = parsed.domain;
+    }
+  } catch (err) {
+    alert('Errore nel parsing dell\'EML: ' + err.message);
+  }
+}
+
+/**
+ * Parsing minimale degli header EML:
+ *  - dominio: priorità From: header (5322.From, quello rilevante per DMARC),
+ *             fallback su Return-Path / Sender / DKIM-Signature d=
+ *  - selettori: tutti gli s= dagli header DKIM-Signature / ARC-Message-Signature
+ */
+function parseEmlHeaders(content) {
+  // RFC 5322 header unfolding: righe successive con WSP iniziale fanno parte dell'header precedente
+  const unfolded = content.replace(/\r?\n[ \t]+/g, ' ');
+
+  // Helper: estrae il dominio dell'email dalla linea di un header indirizzo.
+  // Cerca prima un <email>, poi un'email "nuda".
+  const domainFromAddrLine = (line) => {
+    let m = line.match(/<([A-Za-z0-9._+\-]+)@([A-Za-z0-9.\-]+)>/);
+    if (m) return m[2].toLowerCase();
+    m = line.match(/([A-Za-z0-9._+\-]+)@([A-Za-z0-9.\-]+)/);
+    if (m) return m[2].toLowerCase();
+    return null;
+  };
+
+  let domain = null;
+  const fromLine = unfolded.match(/^From:[ \t]*([^\r\n]+)/im);
+  if (fromLine) domain = domainFromAddrLine(fromLine[1]);
+
+  if (!domain) {
+    for (const h of ['Sender','Return-Path','Reply-To']) {
+      const m = unfolded.match(new RegExp('^'+h+':[ \\t]*([^\\r\\n]+)','im'));
+      if (m) { domain = domainFromAddrLine(m[1]); if (domain) break; }
+    }
+  }
+  if (!domain) {
+    // ultima spiaggia: d= della firma DKIM
+    const dkim = unfolded.match(/^DKIM-Signature:[^\r\n]*?\bd=([A-Za-z0-9.\-]+)/im);
+    if (dkim) domain = dkim[1].toLowerCase();
+  }
+  if (domain) domain = domain.replace(/[.>;,]+$/,'');
+
+  // selettori: tutti gli s= negli header DKIM-Signature / ARC-Message-Signature
+  const sels = new Set();
+  const sigLines = unfolded.match(/^(?:DKIM-Signature|ARC-Message-Signature):[^\r\n]+/gim) || [];
+  sigLines.forEach(line => {
+    const matches = line.matchAll(/(?:^|[\s;])s=([^;\s]+)/gi);
+    for (const m of matches) {
+      const s = m[1].trim().replace(/[.>;,]+$/,'');
+      if (/^[A-Za-z0-9_.\-]{1,63}$/.test(s)) sels.add(s);
+    }
+  });
+
+  return { domain, selectors: Array.from(sels) };
+}
+
+$('#check-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = $('#submit-btn');
+  const status = $('#status-text');
+  const out = $('#result');
+
+  // validazione soft: serve dominio (o estratto da EML o digitato)
+  let domain = $('#domain').value.trim();
+  if (!domain && parsedEmlData && parsedEmlData.domain) {
+    domain = parsedEmlData.domain;
+    $('#domain').value = domain;
+  }
+  if (!domain) {
+    status.innerHTML = '<span style="color:var(--crit)">Indica un dominio o carica un .eml</span>';
+    $('#domain').focus();
+    return;
+  }
+
+  btn.disabled = true;
+  status.innerHTML = '<span class="loader"></span> Interrogazione DNS in corso...';
+  out.innerHTML = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('domain', domain);
+    fd.append('resolver', $('#resolver').value.trim() || '1.1.1.1');
+    const sels = $('#selectors').value.trim();
+    if (sels) fd.append('selectors', sels);
+    if (fileEl.files[0]) fd.append('eml', fileEl.files[0]);
+
+    const r = await fetch('api.php', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || ('HTTP '+r.status));
+    lastReportData = data;
+    render(data);
+  } catch (err) {
+    out.innerHTML = `<div class="error-msg"><strong>Errore:</strong> ${escapeHtml(err.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    status.textContent = '';
+  }
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/**
+ * Tooltip helper: aggiunge attributo title con la spiegazione del trailing dot.
+ * Usato sui valori FQDN nella UI per chiarire all'utente cosa significa il
+ * punto finale (sintassi DNS RFC 1034/1035: nome assoluto).
+ */
+const FQDN_TOOLTIP = 'Il punto finale indica che il nome è un FQDN assoluto (RFC 1034/1035), come restituito da dig.';
+function fqdnAttr() {
+  return `title="${FQDN_TOOLTIP}"`;
+}
+
+function badge(status) {
+  const label = {ok:'OK', warning:'Warning', critical:'Critical', info:'Info', unknown:'N/A'}[status] || status;
+  return `<span class="badge ${status}">${label}</span>`;
+}
+
+function issueIcon(level) {
+  return {critical:'🔴', warning:'⚠️', info:'ℹ️'}[level] || '•';
+}
+
+function renderIssues(issues) {
+  if (!issues || !issues.length) return '';
+  return `<ul class="issue-list">${issues.map(i => `
+    <li class="issue ${i.level}">
+      <span class="issue-icon">${issueIcon(i.level)}</span>
+      <span>${escapeHtml(i.msg)}</span>
+    </li>`).join('')}</ul>`;
+}
+
+/**
+ * Render tag list. I tag in longKeys vanno in box full-width con scroll;
+ * gli altri nei chip compatti. I tag multi-value (rua, ruf separati da virgola)
+ * vengono splittati ma restano nel medesimo box del loro tag.
+ */
+function renderTags(tags, descMap, longKeys = []) {
+  if (!tags || !Object.keys(tags).length) return '';
+
+  const shortTags = {};
+  const longTags = {};
+  for (const [k, v] of Object.entries(tags)) {
+    if (longKeys.includes(k.toLowerCase()) || (v && v.length > 60)) {
+      longTags[k] = v;
+    } else {
+      shortTags[k] = v;
+    }
+  }
+
+  let html = '';
+
+  if (Object.keys(shortTags).length) {
+    html += `<div class="tag-grid">${Object.entries(shortTags).map(([k,v]) =>
+      `<div class="tag-chip" title="${escapeHtml(descMap[k] || '')}">
+        <span class="key">${escapeHtml(k)}=</span><span class="val">${escapeHtml(v)}</span>
+      </div>`
+    ).join('')}</div>`;
+  }
+
+  if (Object.keys(longTags).length) {
+    html += '<div class="tag-long-list">';
+    for (const [k, v] of Object.entries(longTags)) {
+      // split per virgola (per rua/ruf possono esserci più valori)
+      const values = v.split(',').map(s => s.trim()).filter(Boolean);
+      const countBadge = values.length > 1 ? `<span class="count">${values.length}</span>` : '';
+      const desc = descMap[k] || '';
+      html += `<div class="tag-long" title="${escapeHtml(desc)}">
+        <div class="tag-long-header">
+          <span>${escapeHtml(k)}${desc ? ' · ' + escapeHtml(desc) : ''}</span>
+          ${countBadge}
+        </div>
+        <div class="tag-long-body">
+          ${values.map(val => `<div class="tag-long-value">${escapeHtml(val)}</div>`).join('')}
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  return html;
+}
+
+const DMARC_TAG_DESC = {
+  v: 'Versione DMARC',
+  p: 'Policy dominio',
+  sp: 'Policy sottodomini',
+  pct: 'Percentuale applicazione',
+  rua: 'Report aggregati',
+  ruf: 'Report forensi',
+  adkim: 'Allineamento DKIM (r/s)',
+  aspf: 'Allineamento SPF (r/s)',
+  fo: 'Opzioni report forensi',
+  rf: 'Formato report',
+  ri: 'Intervallo report (s)',
+};
+// Tag DMARC che vanno SEMPRE in box dedicato full-width (possono avere valori lunghi o multipli)
+const DMARC_LONG = ['rua', 'ruf'];
+
+const DKIM_TAG_DESC = {
+  v: 'Versione DKIM',
+  k: 'Tipo chiave (rsa/ed25519)',
+  p: 'Chiave pubblica base64',
+  t: 'Flag (y=testing, s=no sub)',
+  h: 'Hash supportati',
+  s: 'Service type',
+  n: 'Note',
+};
+// p= è sempre lungo: sempre full-width
+const DKIM_LONG = ['p'];
+
+function renderDmarc(d) {
+  let html = '';
+
+  if (d.managed_by === 'both') {
+    html += `<div class="alert-conflict">
+      <span class="icon">🚨</span>
+      <div>
+        <strong>CONFLITTO DNS RILEVATO</strong><br>
+        Sul record <code>${escapeHtml(d.name)}</code> sono presenti <strong>SIA un CNAME SIA un record TXT</strong>.<br>
+        Questa configurazione è <strong>vietata dalla RFC 1034</strong>: un CNAME non può coesistere con altri tipi di record sullo stesso nome.
+        Il risultato è imprevedibile, i resolver autoritativi potrebbero rifiutare la zona o ignorare uno dei due record, rompendo DMARC.
+        <br><strong>Azione richiesta:</strong> decidere se gestire DMARC tramite CNAME (delegato a terze parti) oppure tramite TXT diretto, e rimuovere l'altro.
+      </div>
+    </div>`;
+  }
+
+  let mgmtBadge = '';
+  if (d.managed_by === 'cname')      mgmtBadge = '<span class="badge info">Gestito via CNAME</span>';
+  else if (d.managed_by === 'txt')   mgmtBadge = '<span class="badge info">Gestito via TXT diretto</span>';
+  else if (d.managed_by === 'both')  mgmtBadge = '<span class="badge critical">CNAME + TXT (conflitto)</span>';
+
+  html += `<dl class="kv">
+    <dt>Nome interrogato</dt><dd>${escapeHtml(d.name)}</dd>
+    <dt>Gestione</dt><dd>${mgmtBadge || '<span class="badge unknown">Non configurato</span>'}</dd>`;
+
+  if (d.cname && d.cname.length) {
+    html += `<dt>CNAME</dt><dd ${fqdnAttr()}>${d.cname.map(escapeHtml).join(', ')}</dd>`;
+  }
+  if (d.cname_target) {
+    html += `<dt>Target CNAME risolto</dt><dd ${fqdnAttr()}>${escapeHtml(d.cname_target)}</dd>`;
+  }
+  html += `</dl>`;
+
+  if (d.records && d.records.length) {
+    html += '<div style="margin-top:14px"><label>Record DMARC</label>';
+    d.records.forEach(r => {
+      html += `<div class="record"><span class="label-inline">TXT</span>${escapeHtml(r)}</div>`;
+    });
+    html += '</div>';
+  }
+
+  if (d.tags && Object.keys(d.tags).length) {
+    html += '<div style="margin-top:14px"><label>Tag parsing</label>';
+    html += renderTags(d.tags, DMARC_TAG_DESC, DMARC_LONG);
+    html += '</div>';
+  }
+
+  if (d.issues && d.issues.length) {
+    html += '<div style="margin-top:14px"><label>Analisi</label>' + renderIssues(d.issues) + '</div>';
+  }
+
+  return html;
+}
+
+function renderSpf(s) {
+  let html = '';
+  if (s.records && s.records.length) {
+    html += '<div><label>Record SPF</label>';
+    s.records.forEach(r => {
+      html += `<div class="record"><span class="label-inline">TXT</span>${escapeHtml(r)}</div>`;
+    });
+    html += '</div>';
+
+    // Catena di redirect (se presente)
+    if (s.redirect_chain && s.redirect_chain.length) {
+      html += '<div style="margin-top:14px"><label>Catena redirect</label>';
+      s.redirect_chain.forEach(c => {
+        const from = escapeHtml(c.from);
+        const to   = escapeHtml(c.to);
+        html += `<div class="record" style="border-left:3px solid var(--accent)" ${fqdnAttr()}>
+          <span class="label-inline">↪</span>
+          <strong>${from}</strong> → redirect= <strong>${to}</strong>
+        </div>`;
+        if (c.record) {
+          html += `<div class="record"><span class="label-inline">TXT @ ${to}</span>${escapeHtml(c.record)}</div>`;
+        } else {
+          html += `<div class="record" style="color:var(--crit);border-color:var(--crit)">✗ Nessun record v=spf1 su <strong>${to}</strong></div>`;
+        }
+      });
+      html += '</div>';
+    }
+
+    // Record effettivo (dopo aver seguito il redirect)
+    if (s.effective_record && s.effective_domain) {
+      const eff = escapeHtml(s.effective_domain);
+      html += `<div style="margin-top:10px"><label>Record SPF effettivo (gestito su <span ${fqdnAttr()}>${eff}</span>)</label>
+        <div class="record" style="border-left:3px solid var(--ok)"><span class="label-inline">TXT</span>${escapeHtml(s.effective_record)}</div>
+      </div>`;
+    }
+
+    html += `<dl class="kv" style="margin-top:14px">
+      <dt>DNS lookup totali</dt>
+      <dd>${s.lookups} / 10 ${s.lookups > 10 ? '🔴' : (s.lookups >= 8 ? '⚠️' : '✅')}</dd>
+      <dt>Meccanismi (record locale)</dt>
+      <dd>${s.mechanisms && s.mechanisms.length ? s.mechanisms.map(escapeHtml).join(' · ') : 'nessuno'}</dd>
+      <dt>Qualificatore "all" effettivo</dt>
+      <dd>${s.all_qualifier
+            ? `<code>${escapeHtml(s.all_qualifier)}all</code>${s.has_redirect ? ' <span class="hint" '+fqdnAttr()+'>(da '+escapeHtml(s.effective_domain)+')</span>' : ''}`
+            : (s.has_redirect ? 'mancante anche dopo redirect' : 'mancante')}</dd>
+    </dl>`;
+
+    // i meccanismi del record effettivo (post-redirect) possono essere decine di IP:
+    // li mostriamo solo on-demand dentro un details per non intasare la UI
+    if (s.effective_mechanisms && s.effective_mechanisms.length) {
+      html += `<details style="margin-top:10px">
+        <summary>Meccanismi del record effettivo dopo redirect (${s.effective_mechanisms.length} totali)</summary>
+        <div class="record" style="margin-top:8px">${s.effective_mechanisms.map(escapeHtml).join(' · ')}</div>
+      </details>`;
+    }
+  }
+
+  if (s.issues && s.issues.length) {
+    html += '<div style="margin-top:14px"><label>Analisi</label>' + renderIssues(s.issues) + '</div>';
+  }
+
+  if (s.all_txt && s.all_txt.length) {
+    const others = s.all_txt.filter(t => !t.toLowerCase().startsWith('v=spf1'));
+    if (others.length) {
+      html += `<details><summary>Altri record TXT della zona (${others.length})</summary>`;
+      others.forEach(r => html += `<div class="record">${escapeHtml(r)}</div>`);
+      html += '</details>';
+    }
+  }
+  return html;
+}
+
+function renderMx(m) {
+  let html = '';
+  if (m.records && m.records.length) {
+    html += `<table class="mx-table">
+      <thead><tr><th>Priorità</th><th>Host</th></tr></thead>
+      <tbody>${m.records.map(r => `<tr><td>${r.priority}</td><td ${fqdnAttr()}>${escapeHtml(r.host)}</td></tr>`).join('')}</tbody>
+    </table>`;
+  }
+  if (m.issues && m.issues.length) {
+    html += '<div style="margin-top:12px">' + renderIssues(m.issues) + '</div>';
+  }
+  return html;
+}
+
+function renderDkim(d) {
+  let html = `<div class="hint" style="margin-bottom:12px">
+    Tentativi: <strong>${d.tried}</strong> · Selettori trovati: <strong>${d.count}</strong>
+  </div>`;
+
+  if (d.count === 0) {
+    html += `<div class="issue warning">
+      <span class="issue-icon">⚠️</span>
+      <span>Nessun selettore DKIM trovato nella lista provata. Per risultati certi: apri una email in uscita dal dominio, cerca l'header <code>DKIM-Signature: ... s=XXX</code>, e specifica il selettore (oppure carica direttamente il file .eml).</span>
+    </div>`;
+    return html;
+  }
+
+  d.found.forEach(s => {
+    html += `<div class="dkim-selector">
+      <h4>🔑 ${escapeHtml(s.selector)} <span class="hint" style="font-weight:normal">${escapeHtml(s.name)}</span></h4>`;
+
+    if (s.cname && s.cname.length) {
+      html += `<div class="record" ${fqdnAttr()}><span class="label-inline">CNAME</span>${s.cname.map(escapeHtml).join(', ')}</div>`;
+    }
+    s.txt.forEach(t => {
+      const preview = t.length > 200 ? escapeHtml(t.slice(0, 200)) + `<span style="color:var(--text-dim)">... (${t.length} char)</span>` : escapeHtml(t);
+      html += `<div class="record"><span class="label-inline">TXT</span>${preview}</div>`;
+    });
+    if (s.tags && Object.keys(s.tags).length) {
+      html += renderTags(s.tags, DKIM_TAG_DESC, DKIM_LONG);
+    }
+    if (s.issues && s.issues.length) {
+      html += renderIssues(s.issues);
+    }
+    html += '</div>';
+  });
+
+  return html;
+}
+
+function render(d) {
+  const out = $('#result');
+  const overallMsg = {
+    ok: 'Configurazione DNS conforme',
+    warning: 'Configurazione funzionante con avvisi da valutare',
+    critical: 'Problemi critici rilevati che richiedono intervento',
+    unknown: 'Stato della configurazione non determinabile',
+  }[d.overall_status];
+
+  let html = `<div id="report-content">`;
+
+  html += `<div class="overall-banner ${d.overall_status}">
+    <span class="icon">${ {ok:'✅',warning:'⚠️',critical:'🔴'}[d.overall_status] || '•' }</span>
+    <div>
+      <div style="font-size:16px"><strong>${escapeHtml(d.domain)}</strong></div>
+      <div style="color:var(--text-dim); font-size:13px; margin-top:2px">${overallMsg}</div>
+    </div>
+  </div>`;
+
+  html += `<div class="meta-bar">
+    <span>Resolver: <code>${escapeHtml(d.resolver)}</code></span>
+    <span>Selettori provati: <code>${d.selectors_used.length}</code></span>
+    <span>Tempo: <code>${d.elapsed_ms}ms</code></span>
+    <span>Timestamp: <code>${escapeHtml(d.timestamp)}</code></span>
+  </div>`;
+
+  if (d.eml_selectors_extracted && d.eml_selectors_extracted.length) {
+    html += `<div class="meta-bar">
+      <span>📎 Selettori estratti dall'EML: <code>${d.eml_selectors_extracted.map(escapeHtml).join(', ')}</code></span>
+    </div>`;
+  }
+
+  const sections = [
+    {key:'mx',    title:'📬 MX',    desc:'Mail Exchanger · server che ricevono posta per il dominio',     renderer: renderMx},
+    {key:'spf',   title:'🛡️ SPF',   desc:'Sender Policy Framework · server autorizzati a inviare',        renderer: renderSpf},
+    {key:'dmarc', title:'📋 DMARC', desc:'Policy di gestione + reporting su fallimenti SPF/DKIM',         renderer: renderDmarc},
+    {key:'dkim',  title:'🔐 DKIM',  desc:'Firma crittografica delle email · chiavi pubblicate in DNS',    renderer: renderDkim},
+  ];
+
+  sections.forEach(sec => {
+    const data = d[sec.key];
+    html += `<div class="card">
+      <div class="card-header">
+        <h2>${sec.title}</h2>
+        ${badge(data.status)}
+      </div>
+      <div class="card-body">
+        <div class="hint" style="margin-bottom:12px">${sec.desc}</div>
+        ${sec.renderer(data)}
+      </div>
+    </div>`;
+  });
+
+  html += `</div>`; // /report-content
+
+  // Nota tecnica sul trailing dot dei FQDN
+  html += `<div class="info-note">
+    <span class="info-note-icon">ℹ️</span>
+    <div>
+      <strong>Nota sui nomi DNS</strong>: i nomi mostrati nei record (CNAME, MX, redirect SPF, ecc.) terminano con un punto, ad esempio <code>esempio.com.</code> Non è un refuso: secondo RFC 1034/1035, il punto finale indica che il nome è un <em>FQDN assoluto</em>, cioè completo e non relativo alla zona corrente. È il valore esatto che restituisce il resolver DNS (e <code>dig</code>). Tecnicamente <code>esempio.com</code> ed <code>esempio.com.</code> rappresentano lo stesso nome quando interrogati da un client, ma il punto finale rimuove qualunque ambiguità.
+    </div>
+  </div>`;
+
+  // PDF download bar
+  html += `<div class="pdf-bar">
+    <div>
+      <strong>📄 Esporta report</strong>
+      <div class="hint">Genera un PDF stampabile dell'analisi corrente.</div>
+    </div>
+    <button type="button" class="primary" id="pdf-btn">Scarica PDF</button>
+  </div>`;
+
+  html += `<details style="margin-top:20px">
+    <summary>Output JSON completo</summary>
+    <pre class="record" style="white-space:pre-wrap; max-height:400px; overflow:auto">${escapeHtml(JSON.stringify(d, null, 2))}</pre>
+  </details>`;
+
+  out.innerHTML = html;
+
+  $('#pdf-btn').addEventListener('click', generatePdf);
+}
+
+// ---------- PDF generation (pdfmake) ----------
+// pdfmake costruisce il PDF da una definizione strutturata (docDefinition),
+// niente rasterizzazione di HTML: layout pulito, testi che vanno a capo
+// nativamente, nessun problema di colori CSS, nessuna pagina bianca.
+
+let pdfmakeLoading = null;
+function loadPdfmake() {
+  if (window.pdfMake && window.pdfMake.vfs) return Promise.resolve();
+  if (pdfmakeLoading) return pdfmakeLoading;
+  pdfmakeLoading = (async () => {
+    // Versione bumped quando aggiorniamo lo script: forza il browser a non
+    // riusare un eventuale cached da un path precedente (es. "vendor/")
+    await loadScript('include/pdfmake.min.js?v=4');
+    await loadScript('include/vfs_fonts.js?v=4');
+  })();
+  return pdfmakeLoading;
+}
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Impossibile caricare ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+// palette PDF (chiaro, leggibile in stampa)
+const PDF_COLORS = {
+  ok:        { bg: '#e7f5ec', border: '#3fb950', text: '#1a7f37' },
+  warning:   { bg: '#fff8e1', border: '#d29922', text: '#9a6700' },
+  critical:  { bg: '#fdecec', border: '#f85149', text: '#cf222e' },
+  info:      { bg: '#f0f6ff', border: '#0969da', text: '#0550ae' },
+  neutral:   { bg: '#f6f8fa', border: '#d0d7de', text: '#1f2328' },
+  dim:       '#656d76',
+  accent:    '#0550ae',
+  accent_bg: '#ddf4ff',
+};
+
+function pdfStatusLabel(s) {
+  return ({ ok: 'OK', warning: 'WARNING', critical: 'CRITICAL', info: 'INFO', unknown: 'N/A' }[s] || s).toUpperCase();
+}
+
+// "table" pdfmake con singolo cell colorato (badge / banner)
+function pdfBox(text, status, opts = {}) {
+  const c = PDF_COLORS[status] || PDF_COLORS.neutral;
+  return {
+    table: {
+      widths: ['*'],
+      body: [[ { text, color: c.text, fillColor: c.bg, border: [true,true,true,true], margin: [8, 6, 8, 6], ...opts } ]]
+    },
+    layout: {
+      hLineColor: () => c.border, vLineColor: () => c.border,
+      hLineWidth: () => 1, vLineWidth: () => 1,
+      paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+    },
+    margin: [0, 0, 0, 8],
+  };
+}
+
+function pdfBadge(status) {
+  const c = PDF_COLORS[status] || PDF_COLORS.neutral;
+  return {
+    table: { body: [[ { text: pdfStatusLabel(status), color: c.text, fillColor: c.bg, fontSize: 8, bold: true, margin: [6,2,6,2] } ]] },
+    layout: { hLineColor: () => c.border, vLineColor: () => c.border, hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+              paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0 },
+  };
+}
+
+function pdfSectionHeader(title, status) {
+  return {
+    columns: [
+      { text: title, fontSize: 14, bold: true, color: PDF_COLORS.accent },
+      { width: 'auto', stack: [ pdfBadge(status) ] },
+    ],
+    margin: [0, 10, 0, 6],
+    columnGap: 10,
+  };
+}
+
+function pdfIssues(issues) {
+  if (!issues || !issues.length) return null;
+  return {
+    stack: issues.map(i => {
+      const c = PDF_COLORS[i.level] || PDF_COLORS.neutral;
+      const tag = i.level.toUpperCase();
+      return {
+        table: { widths: ['*'], body: [[ {
+          text: [
+            { text: tag + '  ', bold: true, color: c.text, fontSize: 8 },
+            { text: pdfSafe(i.msg), color: PDF_COLORS.neutral.text, fontSize: 9 },
+          ],
+          fillColor: c.bg, margin: [8, 5, 8, 5],
+        } ]] },
+        layout: {
+          hLineWidth: () => 0, vLineWidth: (i) => i === 0 ? 3 : 0,
+          vLineColor: () => c.border,
+          paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+        },
+        margin: [0, 0, 0, 4],
+      };
+    }),
+    margin: [0, 4, 0, 4],
+  };
+}
+
+function pdfKV(rows) {
+  return {
+    table: {
+      widths: [120, '*'],
+      body: rows.map(([k, v]) => [
+        { text: k, color: PDF_COLORS.dim, fontSize: 9, margin: [0,3,0,3] },
+        { text: v == null || v === '' ? '—' : String(v), fontSize: 9, margin: [0,3,0,3] },
+      ]),
+    },
+    layout: 'noBorders',
+    margin: [0, 0, 0, 6],
+  };
+}
+
+function pdfRecordBox(label, text) {
+  return {
+    table: { widths: ['*'], body: [[ {
+      stack: [
+        { text: label, color: PDF_COLORS.accent, fontSize: 8, bold: true, margin: [0,0,0,3] },
+        { text: softBreak(text), font: 'Roboto', fontSize: 8.5, color: PDF_COLORS.neutral.text },
+      ],
+      fillColor: PDF_COLORS.neutral.bg, margin: [8, 6, 8, 6],
+    } ]] },
+    layout: {
+      hLineColor: () => PDF_COLORS.neutral.border, vLineColor: () => PDF_COLORS.neutral.border,
+      hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+      paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+    },
+    margin: [0, 0, 0, 6],
+  };
+}
+
+/**
+ * pdfmake non spezza le stringhe senza spazi (es. base64 della chiave DKIM,
+ * mailto: lunghi, URL). Inserisce uno zero-width-space ogni N caratteri
+ * SOLO all'interno di run continui senza whitespace o separatori naturali.
+ * Inoltre sanitizza caratteri Unicode che Roboto (font usato nel PDF) non ha
+ * nelle proprie tabelle cmap: senza questo, glifi mancanti finiscono nel PDF
+ * come "tofu" (rettangolino vuoto o glifo random).
+ */
+function softBreak(text, chunkSize = 50) {
+  if (text == null) return '';
+  let s = pdfSafe(String(text));
+  return s.replace(/[^\s,;:]{60,}/g, run => {
+    const parts = [];
+    for (let i = 0; i < run.length; i += chunkSize) parts.push(run.slice(i, i + chunkSize));
+    return parts.join('\u200B');
+  });
+}
+
+/**
+ * Map di caratteri Unicode NON presenti nel font Roboto del vfs pdfmake
+ * verso equivalenti ASCII. Verificato leggendo la cmap del font:
+ * Roboto include Latin-1, Latin Extended, simboli base (·, —, …, •)
+ * ma NON include il blocco "Arrows" (U+2190-U+21FF) né molti altri simboli.
+ * Aggiungi qui ogni nuovo carattere che dovesse risultare "tofu" nel PDF.
+ */
+const PDF_CHAR_MAP = {
+  '\u2192': '>>',  // → RIGHTWARDS ARROW
+  '\u2190': '<<',  // ← LEFTWARDS ARROW
+  '\u2194': '<>',  // ↔ LEFT RIGHT ARROW
+  '\u21AA': '->',  // ↪ LEFTWARDS ARROW WITH HOOK
+  '\u21A9': '<-',  // ↩ RIGHTWARDS ARROW WITH HOOK
+  '\u279C': '>',   // ➜ HEAVY ROUND-TIPPED RIGHTWARDS ARROW
+  '\u2713': 'OK',  // ✓ CHECK MARK
+  '\u2717': 'X',   // ✗ BALLOT X
+  '\u26A0': '!',   // ⚠ WARNING SIGN
+  '\u2705': 'OK',  // ✅ WHITE HEAVY CHECK MARK
+  '\u26A1': '!',   // ⚡ HIGH VOLTAGE
+  '\u{1F511}': 'KEY', // 🔑
+  '\u{1F4E7}': '',  // 📧
+  '\u{1F4EC}': '',  // 📬
+  '\u{1F6E1}': '',  // 🛡
+  '\u{1F4CB}': '',  // 📋
+  '\u{1F510}': '',  // 🔐
+  '\u{1F534}': '',  // 🔴
+  '\u{1F6A8}': '!', // 🚨
+  '\u{FE0F}': '',   // variation selector che spesso segue emoji
+};
+function pdfSafe(s) {
+  // Usa replaceAll con Array.from per gestire codepoint > BMP (emoji)
+  // Costruisce regex unione dei char da rimpiazzare.
+  // Iteriamo per essere certi di catturare anche surrogate pairs.
+  return Array.from(s).map(ch => PDF_CHAR_MAP.hasOwnProperty(ch) ? PDF_CHAR_MAP[ch] : ch).join('');
+}
+
+// Box per tag DMARC con valori lunghi (rua/ruf), un valore per riga
+function pdfLongTag(key, values, desc) {
+  return {
+    stack: [
+      {
+        text: [
+          { text: key.toUpperCase(), bold: true, color: PDF_COLORS.accent, fontSize: 9 },
+          { text: desc ? '  ·  ' + desc : '', color: PDF_COLORS.dim, fontSize: 8 },
+          { text: values.length > 1 ? '   (' + values.length + ')' : '', color: PDF_COLORS.dim, fontSize: 8 },
+        ],
+        fillColor: PDF_COLORS.accent_bg, margin: [8, 4, 8, 4],
+      },
+      {
+        stack: values.map(v => ({ text: softBreak(v), fontSize: 8.5, color: PDF_COLORS.accent, margin: [8, 2, 8, 2] })),
+        fillColor: PDF_COLORS.neutral.bg,
+      },
+    ],
+    margin: [0, 0, 0, 5],
+    /* unbreakable: false volutamente: se il p= di una chiave 2048-bit è troppo
+       lungo per stare in una pagina, deve poter andare a capo */
+    unbreakable: false,
+  };
+}
+
+function pdfTagsGrid(tags, descMap, longKeys = []) {
+  if (!tags || !Object.keys(tags).length) return null;
+  const shortRows = [];
+  const longBoxes = [];
+  for (const [k, v] of Object.entries(tags)) {
+    if (longKeys.includes(k.toLowerCase()) || (v && v.length > 60)) {
+      const values = String(v).split(',').map(s => s.trim()).filter(Boolean);
+      longBoxes.push(pdfLongTag(k, values, descMap[k] || ''));
+    } else {
+      shortRows.push([k, v]);
+    }
+  }
+  const stack = [];
+  if (shortRows.length) {
+    // 2 colonne di chip
+    const cols = [];
+    for (let i = 0; i < shortRows.length; i += 2) {
+      const r1 = shortRows[i];
+      const r2 = shortRows[i+1];
+      cols.push({
+        columns: [
+          chipCell(r1[0], r1[1]),
+          r2 ? chipCell(r2[0], r2[1]) : { text: '', width: '*' },
+        ],
+        columnGap: 6,
+        margin: [0, 0, 0, 4],
+      });
+    }
+    stack.push(...cols);
+  }
+  stack.push(...longBoxes);
+  return { stack, margin: [0, 2, 0, 4] };
+}
+
+function chipCell(key, value) {
+  return {
+    width: '*',
+    table: { widths: ['*'], body: [[ {
+      text: [
+        { text: key + '=', color: PDF_COLORS.dim, fontSize: 8.5 },
+        { text: softBreak(String(value)), color: PDF_COLORS.accent, fontSize: 8.5, bold: true },
+      ],
+      fillColor: PDF_COLORS.neutral.bg, margin: [6, 4, 6, 4],
+    } ]] },
+    layout: {
+      hLineColor: () => PDF_COLORS.neutral.border, vLineColor: () => PDF_COLORS.neutral.border,
+      hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+      paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+    },
+  };
+}
+
+// Costruzione delle singole sezioni
+function pdfMxSection(mx) {
+  const stack = [];
+  if (mx.records && mx.records.length) {
+    stack.push({
+      table: {
+        widths: [60, '*'],
+        headerRows: 1,
+        body: [
+          [ { text: 'Priorità', bold: true, fontSize: 9, color: PDF_COLORS.dim }, { text: 'Host', bold: true, fontSize: 9, color: PDF_COLORS.dim } ],
+          ...mx.records.map(r => [ { text: String(r.priority), fontSize: 9 }, { text: r.host, fontSize: 9 } ]),
+        ],
+      },
+      layout: {
+        hLineWidth: () => 0.3, vLineWidth: () => 0,
+        hLineColor: () => PDF_COLORS.neutral.border,
+        paddingLeft: () => 4, paddingRight: () => 4, paddingTop: () => 3, paddingBottom: () => 3,
+      },
+      margin: [0, 0, 0, 6],
+    });
+  } else {
+    stack.push({ text: 'Nessun record MX trovato.', italics: true, color: PDF_COLORS.dim, fontSize: 9 });
+  }
+  const issues = pdfIssues(mx.issues);
+  if (issues) stack.push(issues);
+  return stack;
+}
+
+function pdfSpfSection(spf) {
+  const stack = [];
+  if (spf.records && spf.records.length) {
+    spf.records.forEach(r => stack.push(pdfRecordBox('TXT', r)));
+  } else {
+    stack.push({ text: 'Nessun record SPF.', italics: true, color: PDF_COLORS.dim, fontSize: 9 });
+  }
+  if (spf.redirect_chain && spf.redirect_chain.length) {
+    stack.push({ text: 'Catena redirect', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] });
+    spf.redirect_chain.forEach(c => {
+      stack.push({
+        text: [
+          { text: c.from, bold: true }, ' >> redirect= ',
+          { text: c.to, bold: true, color: PDF_COLORS.accent },
+        ],
+        fontSize: 9, margin: [0, 0, 0, 4],
+      });
+      if (c.record) stack.push(pdfRecordBox('TXT @ ' + c.to, c.record));
+      else stack.push(pdfRecordBox('ERRORE', 'Nessun record v=spf1 su ' + c.to));
+    });
+  }
+  if (spf.effective_record && spf.effective_domain) {
+    stack.push({ text: 'Record SPF effettivo (gestito su ' + spf.effective_domain + ')', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] });
+    stack.push(pdfRecordBox('TXT', spf.effective_record));
+  }
+  stack.push(pdfKV([
+    ['DNS lookup totali', spf.lookups + ' / 10'],
+    ['Meccanismi (locale)', (spf.mechanisms || []).join('  ·  ') || '—'],
+    ['Qualificatore "all"', spf.all_qualifier
+      ? spf.all_qualifier + 'all' + (spf.has_redirect ? ' (da ' + spf.effective_domain + ')' : '')
+      : 'mancante'],
+  ]));
+  if (spf.effective_mechanisms && spf.effective_mechanisms.length) {
+    stack.push({ text: 'Meccanismi del record effettivo (' + spf.effective_mechanisms.length + ' totali):', bold: true, fontSize: 9, color: PDF_COLORS.dim, margin: [0, 4, 0, 3] });
+    stack.push(pdfRecordBox('MECCANISMI', spf.effective_mechanisms.join('  ·  ')));
+  }
+  const issues = pdfIssues(spf.issues);
+  if (issues) stack.push(issues);
+  return stack;
+}
+
+function pdfDmarcSection(dmarc) {
+  const stack = [];
+
+  // Alert conflitto in cima
+  if (dmarc.managed_by === 'both') {
+    stack.push({
+      table: { widths: ['*'], body: [[ {
+        stack: [
+          { text: 'CONFLITTO DNS RILEVATO', bold: true, color: PDF_COLORS.critical.text, fontSize: 11, margin: [0,0,0,4] },
+          { text: 'Sul record ' + dmarc.name + ' sono presenti SIA un CNAME SIA un record TXT. Configurazione vietata dalla RFC 1034 (un CNAME non può coesistere con altri record sullo stesso nome). I resolver potrebbero rifiutare la zona o ignorare uno dei due record.', fontSize: 9 },
+          { text: 'Azione richiesta: decidere se gestire DMARC tramite CNAME (delegato) o tramite TXT diretto, e rimuovere l\'altro.', fontSize: 9, bold: true, color: PDF_COLORS.critical.text, margin: [0,3,0,0] },
+        ],
+        fillColor: PDF_COLORS.critical.bg, margin: [10, 8, 10, 8],
+      } ]] },
+      layout: { hLineColor: () => PDF_COLORS.critical.border, vLineColor: () => PDF_COLORS.critical.border, hLineWidth: () => 1.5, vLineWidth: () => 1.5, paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0 },
+      margin: [0, 0, 0, 8],
+    });
+  }
+
+  // KV gestione
+  const mgmtMap = { cname: 'Gestito via CNAME', txt: 'Gestito via TXT diretto', both: 'CNAME + TXT (CONFLITTO)' };
+  const kvRows = [
+    ['Nome interrogato', dmarc.name],
+    ['Gestione', mgmtMap[dmarc.managed_by] || 'Non configurato'],
+  ];
+  if (dmarc.cname && dmarc.cname.length) kvRows.push(['CNAME', dmarc.cname.join(', ')]);
+  if (dmarc.cname_target) kvRows.push(['Target CNAME', dmarc.cname_target]);
+  stack.push(pdfKV(kvRows));
+
+  // Record
+  if (dmarc.records && dmarc.records.length) {
+    dmarc.records.forEach(r => stack.push(pdfRecordBox('TXT', r)));
+  }
+
+  // Tag parsing
+  if (dmarc.tags && Object.keys(dmarc.tags).length) {
+    stack.push({ text: 'Tag parsing', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] });
+    const DMARC_DESC = { v:'Versione DMARC', p:'Policy dominio', sp:'Policy sottodomini', pct:'% applicazione',
+                         rua:'Report aggregati', ruf:'Report forensi', adkim:'Allineamento DKIM', aspf:'Allineamento SPF',
+                         fo:'Opzioni forensi', rf:'Formato', ri:'Intervallo' };
+    const tags = pdfTagsGrid(dmarc.tags, DMARC_DESC, ['rua','ruf']);
+    if (tags) stack.push(tags);
+  }
+  const issues = pdfIssues(dmarc.issues);
+  if (issues) stack.push(issues);
+  return stack;
+}
+
+function pdfDkimSection(dkim) {
+  const stack = [];
+  stack.push({
+    text: [
+      { text: 'Tentativi: ', color: PDF_COLORS.dim, fontSize: 9 },
+      { text: String(dkim.tried), bold: true, fontSize: 9 },
+      { text: '   ·   Selettori trovati: ', color: PDF_COLORS.dim, fontSize: 9 },
+      { text: String(dkim.count), bold: true, fontSize: 9 },
+    ],
+    margin: [0, 0, 0, 6],
+  });
+
+  if (dkim.count === 0) {
+    const issues = pdfIssues([{ level: 'warning',
+      msg: 'Nessun selettore DKIM trovato nella lista provata. Per risultati certi, allegare un .eml o specificare il selettore.' }]);
+    if (issues) stack.push(issues);
+    return stack;
+  }
+
+  const DKIM_DESC = { v:'Versione DKIM', k:'Tipo chiave', p:'Chiave pubblica', t:'Flag', h:'Hash', s:'Service', n:'Note' };
+
+  dkim.found.forEach(s => {
+    const inner = [];
+    inner.push({
+      text: [
+        { text: 'KEY ', bold: true, fontSize: 9, color: PDF_COLORS.accent },
+        { text: s.selector, bold: true, fontSize: 11 },
+        { text: '   ' + s.name, color: PDF_COLORS.dim, fontSize: 8 },
+      ],
+      margin: [0, 0, 0, 4],
+    });
+    if (s.cname && s.cname.length) inner.push(pdfRecordBox('CNAME', s.cname.join(', ')));
+    (s.txt || []).forEach(t => inner.push(pdfRecordBox('TXT', t)));
+    if (s.tags && Object.keys(s.tags).length) {
+      const tg = pdfTagsGrid(s.tags, DKIM_DESC, ['p']);
+      if (tg) inner.push(tg);
+    }
+    const sIssues = pdfIssues(s.issues);
+    if (sIssues) inner.push(sIssues);
+
+    stack.push({
+      table: { widths: ['*'], body: [[ { stack: inner, margin: [10, 8, 10, 8] } ]] },
+      layout: {
+        hLineColor: () => PDF_COLORS.neutral.border, vLineColor: () => PDF_COLORS.neutral.border,
+        hLineWidth: () => 0.5, vLineWidth: () => 0.5,
+        paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+      },
+      margin: [0, 0, 0, 6],
+    });
+  });
+  return stack;
+}
+
+function buildPdfDoc(d) {
+  const overallMsg = {
+    ok: 'Configurazione DNS conforme',
+    warning: 'Configurazione funzionante con avvisi da valutare',
+    critical: 'Problemi critici rilevati che richiedono intervento',
+    unknown: 'Stato della configurazione non determinabile',
+  }[d.overall_status];
+
+  const content = [
+    { text: 'Mail DNS Check', fontSize: 18, bold: true, color: PDF_COLORS.accent, margin: [0, 0, 0, 2] },
+    { text: 'Report di analisi SPF · DKIM · DMARC · MX', color: PDF_COLORS.dim, fontSize: 10, margin: [0, 0, 0, 12] },
+
+    // Box overall status
+    pdfBox(
+      [
+        { text: d.domain + '\n', fontSize: 14, bold: true },
+        { text: overallMsg, fontSize: 10 },
+      ],
+      d.overall_status
+    ),
+
+    // Metadati
+    {
+      columns: [
+        { text: [{ text: 'Resolver: ', color: PDF_COLORS.dim }, d.resolver], fontSize: 8 },
+        { text: [{ text: 'Selettori provati: ', color: PDF_COLORS.dim }, String(d.selectors_used.length)], fontSize: 8 },
+        { text: [{ text: 'Tempo: ', color: PDF_COLORS.dim }, d.elapsed_ms + ' ms'], fontSize: 8 },
+        { text: [{ text: 'Timestamp: ', color: PDF_COLORS.dim }, d.timestamp], fontSize: 8 },
+      ],
+      columnGap: 12,
+      margin: [0, 0, 0, 10],
+    },
+  ];
+
+  if (d.eml_selectors_extracted && d.eml_selectors_extracted.length) {
+    content.push({
+      text: [
+        { text: 'Selettori estratti dall\'EML: ', color: PDF_COLORS.dim, fontSize: 8 },
+        { text: d.eml_selectors_extracted.join(', '), fontSize: 8, color: PDF_COLORS.accent },
+      ],
+      margin: [0, 0, 0, 10],
+    });
+  }
+
+  // Sezioni
+  content.push(pdfSectionHeader('MX  ·  Mail Exchanger', d.mx.status));
+  content.push(...pdfMxSection(d.mx));
+
+  content.push(pdfSectionHeader('SPF  ·  Sender Policy Framework', d.spf.status));
+  content.push(...pdfSpfSection(d.spf));
+
+  content.push(pdfSectionHeader('DMARC  ·  Domain-based Message Authentication', d.dmarc.status));
+  content.push(...pdfDmarcSection(d.dmarc));
+
+  content.push(pdfSectionHeader('DKIM  ·  DomainKeys Identified Mail', d.dkim.status));
+  content.push(...pdfDkimSection(d.dkim));
+
+  // Nota tecnica finale sul trailing dot dei nomi DNS
+  content.push({
+    table: { widths: ['*'], body: [[ {
+      stack: [
+        { text: 'Nota sui nomi DNS', bold: true, fontSize: 9, color: PDF_COLORS.accent, margin: [0, 0, 0, 3] },
+        {
+          text: [
+            'I nomi DNS mostrati nei record (CNAME, MX, redirect SPF, ecc.) terminano con un punto, ad esempio ',
+            { text: 'esempio.com.', font: 'Roboto', bold: true },
+            ' Non è un refuso: secondo RFC 1034/1035, il punto finale indica che il nome è un FQDN assoluto, cioè completo e non relativo alla zona corrente. È il valore esatto restituito dal resolver DNS (e da dig). Tecnicamente ',
+            { text: 'esempio.com', font: 'Roboto', bold: true },
+            ' ed ',
+            { text: 'esempio.com.', font: 'Roboto', bold: true },
+            ' rappresentano lo stesso nome quando interrogati da un client, ma il punto finale rimuove qualunque ambiguità.',
+          ],
+          fontSize: 8.5, color: PDF_COLORS.neutral.text, lineHeight: 1.3,
+        },
+      ],
+      fillColor: '#f0f6ff', margin: [10, 8, 10, 8],
+    } ]] },
+    layout: {
+      hLineColor: () => PDF_COLORS.accent, vLineColor: () => PDF_COLORS.accent,
+      hLineWidth: () => 0.5,
+      vLineWidth: (i) => i === 0 ? 3 : 0.5,
+      paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+    },
+    margin: [0, 14, 0, 0],
+    unbreakable: true,
+  });
+
+  return {
+    pageSize: 'A4',
+    pageMargins: [36, 36, 36, 50],
+    defaultStyle: { font: 'Roboto', fontSize: 9, color: PDF_COLORS.neutral.text },
+    content,
+    footer: (currentPage, pageCount) => ({
+      columns: [
+        { text: 'Mail DNS Check · ' + d.domain, color: PDF_COLORS.dim, fontSize: 8, alignment: 'left', margin: [36, 0, 0, 0] },
+        { text: 'Pagina ' + currentPage + ' di ' + pageCount, color: PDF_COLORS.dim, fontSize: 8, alignment: 'right', margin: [0, 0, 36, 0] },
+      ],
+      margin: [0, 20, 0, 0],
+    }),
+  };
+}
+
+async function generatePdf() {
+  const btn = $('#pdf-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loader"></span> Genero PDF...';
+  try {
+    if (!lastReportData) throw new Error('Nessun report da esportare.');
+    await loadPdfmake();
+    const docDef = buildPdfDoc(lastReportData);
+    const domain = lastReportData.domain || 'report';
+    const ts = (lastReportData.timestamp || new Date().toISOString()).replace(/[:T]/g,'-').slice(0,19);
+    const filename = `maildns-${domain}-${ts}.pdf`;
+    pdfMake.createPdf(docDef).download(filename);
+  } catch (err) {
+    alert('Errore nella generazione PDF: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+</script>
+</body>
+</html>
