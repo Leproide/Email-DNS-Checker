@@ -6,13 +6,14 @@
  */
 
 declare(strict_types=1);
+
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 
 // ---------- CONFIG ----------
 const DEFAULT_RESOLVER = '1.1.1.1';
-const DIG_TIMEOUT = 3;
-const DIG_TRIES   = 2;
+const DIG_TIMEOUT      = 3;
+const DIG_TRIES        = 2;
 
 // Selettori DKIM "noti" per provider, usati se l'utente non ne specifica.
 const DEFAULT_SELECTORS = [
@@ -95,6 +96,41 @@ function dig(string $resolver, string $type, string $name): array {
 }
 
 /**
+ * dig con answer section completa: restituisce righe parsate
+ *   [['owner'=>..., 'type'=>..., 'rdata'=>...], ...]
+ * Serve per distinguere record diretti da record risolti via CNAME chain
+ * (cosa impossibile da fare con `dig +short`, che segue silenziosamente i CNAME).
+ */
+function dig_answer(string $resolver, string $type, string $name): array {
+    $cmd = [
+        'dig', '@'.$resolver, '+noall', '+answer',
+        '+time='.DIG_TIMEOUT, '+tries='.DIG_TRIES,
+        $type, $name,
+    ];
+    $desc = [1 => ['pipe','w'], 2 => ['pipe','w']];
+    $proc = @proc_open($cmd, $desc, $pipes);
+    if (!is_resource($proc)) return [];
+    $out = stream_get_contents($pipes[1]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    proc_close($proc);
+
+    $records = [];
+    foreach (explode("\n", (string)$out) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === ';') continue;
+        // formato: owner TTL CLASS TYPE rdata...
+        if (preg_match('/^(\S+)\s+\d+\s+IN\s+(\S+)\s+(.+)$/i', $line, $m)) {
+            $records[] = [
+                'owner' => rtrim(strtolower($m[1]), '.'),
+                'type'  => strtoupper($m[2]),
+                'rdata' => trim($m[3]),
+            ];
+        }
+    }
+    return $records;
+}
+
+/**
  * dig TXT restituisce stringhe con doppi apici e segmentate ("foo" "bar"): normalizza.
  */
 function normalize_txt(array $lines): array {
@@ -111,27 +147,27 @@ function normalize_txt(array $lines): array {
 
 // ---------- ANALISI SPF ----------
 // Segue il modificatore redirect= ricorsivamente (RFC 7208 §6.1):
-//   redirect delega INTEGRALMENTE la politica al dominio target.
-//   Con redirect, il meccanismo "all" nel record locale è inutile e per
-//   convenzione si omette; l'"all" effettivo è quello del target finale.
+// redirect delega INTEGRALMENTE la politica al dominio target.
+// Con redirect, il meccanismo "all" nel record locale è inutile e per
+// convenzione si omette; l'"all" effettivo è quello del target finale.
 function analyze_spf(string $resolver, string $domain): array {
     $txt = normalize_txt(dig($resolver, 'TXT', $domain));
     $spf = [];
     foreach ($txt as $r) if (stripos($r, 'v=spf1') === 0) $spf[] = $r;
 
     $res = [
-        'found'                => count($spf) > 0,
-        'records'              => $spf,
-        'all_txt'              => $txt,
-        'issues'               => [],
-        'lookups'              => 0,
-        'mechanisms'           => [],
-        'all_qualifier'        => null,
-        'redirect_chain'       => [],
-        'effective_record'     => null,
-        'effective_domain'     => null,
-        'has_redirect'         => false,
-        'status'               => 'unknown',
+        'found'         => count($spf) > 0,
+        'records'       => $spf,
+        'all_txt'       => $txt,
+        'issues'        => [],
+        'lookups'       => 0,
+        'mechanisms'    => [],
+        'all_qualifier' => null,
+        'redirect_chain'=> [],
+        'effective_record' => null,
+        'effective_domain' => null,
+        'has_redirect'  => false,
+        'status'        => 'unknown',
     ];
 
     if (count($spf) > 1) {
@@ -139,13 +175,13 @@ function analyze_spf(string $resolver, string $domain): array {
     }
     if (count($spf) === 0) {
         $res['issues'][] = ['level'=>'critical','msg'=>'Nessun record SPF trovato per il dominio.'];
-        $res['status']   = 'critical';
+        $res['status'] = 'critical';
         return $res;
     }
 
     $totalLookups   = 0;
-    $localMechs     = [];  // meccanismi del record LOCALE (dominio interrogato)
-    $effectiveMechs = [];  // meccanismi del record EFFETTIVO (dopo eventuale redirect)
+    $localMechs     = []; // meccanismi del record LOCALE (dominio interrogato)
+    $effectiveMechs = []; // meccanismi del record EFFETTIVO (dopo eventuale redirect)
     $effectiveAll   = null;
     $effectiveRec   = $spf[0];
     $effectiveDom   = $domain;
@@ -159,6 +195,7 @@ function analyze_spf(string $resolver, string $domain): array {
     for ($depth = 0; $depth <= $maxDepth; $depth++) {
         $tokens = preg_split('/\s+/', trim($currentRec));
         array_shift($tokens); // v=spf1
+
         $localAll      = null;
         $localRedirect = null;
         $currentRecMechs = [];
@@ -199,6 +236,7 @@ function analyze_spf(string $resolver, string $domain): array {
             $effectiveDom = $currentDom;
             break;
         }
+
         // niente all, niente redirect: record terminato senza policy
         if ($localRedirect === null) {
             $effectiveRec = $currentRec;
@@ -237,16 +275,17 @@ function analyze_spf(string $resolver, string $domain): array {
         if (count($nextSpf) > 1) {
             $res['issues'][] = ['level'=>'critical','msg'=>"Il target redirect $localRedirect ha più record v=spf1 (PermError)."];
         }
-        $currentDom = $localRedirect;
-        $currentRec = $nextSpf[0];
+
+        $currentDom   = $localRedirect;
+        $currentRec   = $nextSpf[0];
         $effectiveRec = $currentRec;
         $effectiveDom = $currentDom;
     }
 
     $res['lookups']             = $totalLookups;
-    $res['mechanisms']          = $localMechs;                                // solo locale, breve
-    $res['effective_mechanisms']= $hasRedirect ? $effectiveMechs : null;     // dopo redirect, solo se diverso
-    $res['mechanisms_count']    = count($effectiveMechs);                    // conteggio per riferimento
+    $res['mechanisms']          = $localMechs;                              // solo locale, breve
+    $res['effective_mechanisms']= $hasRedirect ? $effectiveMechs : null;    // dopo redirect, solo se diverso
+    $res['mechanisms_count']    = count($effectiveMechs);                   // conteggio per riferimento
     $res['all_qualifier']       = $effectiveAll;
     $res['redirect_chain']      = $chain;
     $res['has_redirect']        = $hasRedirect;
@@ -282,49 +321,84 @@ function analyze_spf(string $resolver, string $domain): array {
 }
 
 // ---------- ANALISI DMARC ----------
+// FIX: distinguere fra (a) configurazione corretta `_dmarc CNAME -> TXT del target`
+// e (b) reale conflitto RFC 1034 con CNAME + TXT sullo stesso owner.
+// `dig +short TXT` segue i CNAME silenziosamente, quindi non basta verificare
+// "CNAME presente && TXT presente" come faceva la vecchia logica.
 function analyze_dmarc(string $resolver, string $domain): array {
-    $name  = '_dmarc.'.$domain;
-    $cname = dig($resolver, 'CNAME', $name);
-    $txt   = normalize_txt(dig($resolver, 'TXT', $name));
-    $dmarc = [];
-    foreach ($txt as $r) if (stripos($r, 'v=DMARC1') === 0) $dmarc[] = $r;
+    $name   = '_dmarc.'.$domain;
+    $nameLc = strtolower($name);
+
+    // Una sola query TXT con answer section completa: contiene sia il CNAME
+    // (se esiste sull'owner) sia il/i TXT finali della chain, ciascuno con
+    // il proprio owner. È così possibile sapere se un TXT è "diretto"
+    // sul nome richiesto o se proviene dal target di un CNAME.
+    $answer = dig_answer($resolver, 'TXT', $name);
+
+    $cnameTarget = null;   // target del CNAME su $name (se presente)
+    $txtDirect   = [];     // TXT con owner == $name  (potenziale conflitto RFC 1034)
+    $txtResolved = [];     // TXT raggiunti via CNAME chain
+    $rawTxtAll   = [];     // tutti i TXT (per debug/UI)
+
+    foreach ($answer as $rec) {
+        if ($rec['type'] === 'CNAME' && $rec['owner'] === $nameLc) {
+            $cnameTarget = rtrim(strtolower($rec['rdata']), '.');
+        } elseif ($rec['type'] === 'TXT') {
+            // estrai stringhe TXT dal formato "quoted" "string" (gestisce TXT segmentati)
+            if (preg_match_all('/"((?:[^"\\\\]|\\\\.)*)"/', $rec['rdata'], $mm)) {
+                $val = implode('', $mm[1]);
+            } else {
+                $val = $rec['rdata'];
+            }
+            $rawTxtAll[] = $val;
+            if ($rec['owner'] === $nameLc) {
+                $txtDirect[] = $val;
+            } else {
+                $txtResolved[] = $val;
+            }
+        }
+    }
+
+    $hasCname      = $cnameTarget !== null;
+    $dmarcDirect   = array_values(array_filter($txtDirect,   fn($r) => stripos($r,'v=DMARC1') === 0));
+    $dmarcResolved = array_values(array_filter($txtResolved, fn($r) => stripos($r,'v=DMARC1') === 0));
 
     $res = [
-        'name'        => $name,
-        'cname'       => $cname,
-        'txt_all'     => $txt,
-        'records'     => $dmarc,
-        'managed_by'  => null,
-        'tags'        => [],
-        'issues'      => [],
-        'status'      => 'unknown',
+        'name'       => $name,
+        'cname'      => $hasCname ? [$cnameTarget] : [],
+        'txt_all'    => $rawTxtAll,
+        'records'    => [],
+        'managed_by' => null,
+        'tags'       => [],
+        'issues'     => [],
+        'status'     => 'unknown',
     ];
 
-    $hasCname  = count($cname)  > 0;
-    $hasDmarc  = count($dmarc)  > 0;
-
-    if ($hasCname && $hasDmarc) {
-        $res['managed_by'] = 'both';
-        $res['issues'][] = ['level'=>'critical','msg'=>'CONFLITTO: presenti SIA CNAME SIA TXT su _dmarc. RFC 1034 vieta CNAME coesistente con altri record. I resolver autoritativi rifiuteranno la zona o ignoreranno uno dei due. Configurazione da correggere SUBITO.'];
-    } elseif ($hasCname && !$hasDmarc) {
-        $res['managed_by'] = 'cname';
-        $target = rtrim($cname[0], '.');
-        $resolvedTxt = normalize_txt(dig($resolver, 'TXT', $target));
-        $resolvedDmarc = [];
-        foreach ($resolvedTxt as $r) if (stripos($r, 'v=DMARC1') === 0) $resolvedDmarc[] = $r;
-        $res['cname_target'] = $target;
-        $res['cname_resolved_txt'] = $resolvedTxt;
-        if ($resolvedDmarc) {
-            $dmarc = $resolvedDmarc;
-            $res['records'] = $dmarc;
-        } else {
-            $res['issues'][] = ['level'=>'critical','msg'=>"Il CNAME punta a $target ma non restituisce alcun record v=DMARC1 valido."];
+    if ($hasCname && count($dmarcDirect) > 0) {
+        // Conflitto REALE RFC 1034: CNAME e TXT entrambi sullo stesso owner.
+        $res['managed_by']        = 'both';
+        $res['cname_target']      = $cnameTarget;
+        $res['cname_resolved_txt']= $txtResolved;
+        $res['records']           = array_merge($dmarcDirect, $dmarcResolved);
+        $res['issues'][]          = ['level'=>'critical','msg'=>'CONFLITTO: presenti SIA CNAME SIA TXT sulla stessa label _dmarc. RFC 1034 vieta CNAME coesistente con altri record sullo stesso owner. I resolver autoritativi rifiuteranno la zona o ignoreranno uno dei due. Configurazione da correggere SUBITO.'];
+        $dmarc = $res['records'];
+    } elseif ($hasCname) {
+        // CNAME -> TXT del target: configurazione VALIDA (DMARC delegato).
+        $res['managed_by']         = 'cname';
+        $res['cname_target']       = $cnameTarget;
+        $res['cname_resolved_txt'] = $txtResolved;
+        $res['records']            = $dmarcResolved;
+        if (!$dmarcResolved) {
+            $res['issues'][] = ['level'=>'critical','msg'=>"Il CNAME punta a $cnameTarget ma non restituisce alcun record v=DMARC1 valido."];
         }
-    } elseif (!$hasCname && $hasDmarc) {
+        $dmarc = $dmarcResolved;
+    } elseif ($dmarcDirect) {
         $res['managed_by'] = 'txt';
+        $res['records']    = $dmarcDirect;
+        $dmarc             = $dmarcDirect;
     } else {
         $res['issues'][] = ['level'=>'critical','msg'=>'Nessun record DMARC trovato (né TXT né CNAME su _dmarc).'];
-        $res['status'] = 'critical';
+        $res['status']   = 'critical';
         return $res;
     }
 
@@ -343,11 +417,11 @@ function analyze_dmarc(string $resolver, string $domain): array {
         }
         $res['tags'] = $tags;
 
-        $p   = strtolower($tags['p']   ?? '');
-        $sp  = strtolower($tags['sp']  ?? '');
-        $pct = isset($tags['pct']) ? (int)$tags['pct'] : 100;
-        $rua = $tags['rua'] ?? '';
-        $ruf = $tags['ruf'] ?? '';
+        $p     = strtolower($tags['p']  ?? '');
+        $sp    = strtolower($tags['sp'] ?? '');
+        $pct   = isset($tags['pct']) ? (int)$tags['pct'] : 100;
+        $rua   = $tags['rua'] ?? '';
+        $ruf   = $tags['ruf'] ?? '';
         $adkim = strtolower($tags['adkim'] ?? 'r');
         $aspf  = strtolower($tags['aspf']  ?? 'r');
 
@@ -358,7 +432,6 @@ function analyze_dmarc(string $resolver, string $domain): array {
         } elseif ($p === 'quarantine') {
             $res['issues'][] = ['level'=>'info','msg'=>'Policy p=quarantine: protezione media. Per il massimo, considera p=reject.'];
         }
-
         if ($pct < 100) {
             $res['issues'][] = ['level'=>'warning','msg'=>"pct=$pct: la policy si applica solo al $pct% dei messaggi non allineati."];
         }
@@ -385,7 +458,7 @@ function analyze_dkim(string $resolver, string $domain, array $selectors): array
     $found = [];
     foreach ($selectors as $s) {
         if (!is_valid_selector($s)) continue;
-        $name = $s.'._domainkey.'.$domain;
+        $name  = $s.'._domainkey.'.$domain;
         $txt   = normalize_txt(dig($resolver, 'TXT', $name));
         $cname = dig($resolver, 'CNAME', $name);
         if (!$txt && !$cname) continue;
@@ -431,10 +504,10 @@ function analyze_dkim(string $resolver, string $domain, array $selectors): array
         $found[] = $entry;
     }
     return [
-        'tried'   => count($selectors),
-        'found'   => $found,
-        'count'   => count($found),
-        'status'  => count($found) === 0 ? 'warning' : 'ok',
+        'tried'  => count($selectors),
+        'found'  => $found,
+        'count'  => count($found),
+        'status' => count($found) === 0 ? 'warning' : 'ok',
     ];
 }
 
@@ -455,7 +528,6 @@ function analyze_mx(string $resolver, string $domain): array {
     } elseif (count($mx) === 1) {
         $issues[] = ['level'=>'info','msg'=>'Un solo MX: nessuna ridondanza in caso di failure del primario.'];
     }
-
     return [
         'records' => $mx,
         'issues'  => $issues,
@@ -485,17 +557,17 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if ($method !== 'POST') bail(405, 'Only POST');
 
 $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
-$domain    = '';
-$selectors = [];
-$resolver  = DEFAULT_RESOLVER;
+$domain     = '';
+$selectors  = [];
+$resolver   = DEFAULT_RESOLVER;
 $emlContent = '';
 
 if (stripos($contentType, 'application/json') !== false) {
-    $raw = file_get_contents('php://input') ?: '';
+    $raw  = file_get_contents('php://input') ?: '';
     $data = json_decode($raw, true);
     if (!is_array($data)) bail(400, 'JSON non valido');
-    $domain    = strtolower(trim($data['domain'] ?? ''));
-    $resolver  = trim($data['resolver'] ?? DEFAULT_RESOLVER);
+    $domain   = strtolower(trim($data['domain']   ?? ''));
+    $resolver = trim($data['resolver'] ?? DEFAULT_RESOLVER);
     if (isset($data['selectors']) && is_array($data['selectors'])) {
         $selectors = array_map('trim', $data['selectors']);
     }
@@ -503,8 +575,8 @@ if (stripos($contentType, 'application/json') !== false) {
         $emlContent = base64_decode($data['eml_b64'], true) ?: '';
     }
 } else {
-    $domain    = strtolower(trim($_POST['domain'] ?? ''));
-    $resolver  = trim($_POST['resolver'] ?? DEFAULT_RESOLVER);
+    $domain   = strtolower(trim($_POST['domain']   ?? ''));
+    $resolver = trim($_POST['resolver'] ?? DEFAULT_RESOLVER);
     if (!empty($_POST['selectors'])) {
         $selectors = array_filter(array_map('trim', preg_split('/[\s,]+/', $_POST['selectors'])));
     }
@@ -521,6 +593,7 @@ $extractedFromEml = [];
 if ($emlContent !== '') {
     $extractedFromEml = extract_selectors_from_eml($emlContent);
 }
+
 if (!$selectors) {
     $selectors = $extractedFromEml ?: DEFAULT_SELECTORS;
 }
@@ -530,9 +603,9 @@ if (count($selectors) > 100) $selectors = array_slice($selectors, 0, 100);
 // ---------- RUN ----------
 $t0 = microtime(true);
 $out = [
-    'domain'    => $domain,
-    'resolver'  => $resolver,
-    'timestamp' => gmdate('c'),
+    'domain'                  => $domain,
+    'resolver'                => $resolver,
+    'timestamp'               => gmdate('c'),
     'eml_selectors_extracted' => $extractedFromEml,
     'selectors_used'          => $selectors,
     'mx'    => analyze_mx($resolver, $domain),
