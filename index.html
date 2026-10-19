@@ -1,9 +1,34 @@
 <!DOCTYPE html>
+<!--
+  Mail DNS Check
+  Copyright (C) 2026 Leproide
+  Author: https://github.com/Leproide
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
 <html lang="it">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Mail DNS Check · SPF / DKIM / DMARC / MX</title>
+<script>
+  // Applica subito il tema salvato (prima del rendering, evita il flash di colori)
+  try {
+    const t = localStorage.getItem('maildns-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* storage non disponibile: resta Auto */ }
+</script>
 <style>
   :root {
     --bg: #0f1419;
@@ -20,8 +45,13 @@
     --info: #6e7681;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
+  /* Tema: data-theme sull'<html> = "light" | "dark"; assente = Auto (segue il sistema).
+     Il tema scuro e' quello base di :root; il chiaro si applica se scelto
+     esplicitamente oppure in Auto quando il sistema preferisce il chiaro. */
+  :root { color-scheme: dark; }
   @media (prefers-color-scheme: light) {
-    :root {
+    :root:not([data-theme="dark"]) {
+      color-scheme: light;
       --bg: #f6f8fa;
       --bg-elev: #ffffff;
       --bg-card: #ffffff;
@@ -35,6 +65,21 @@
       --crit: #cf222e;
       --info: #656d76;
     }
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f6f8fa;
+    --bg-elev: #ffffff;
+    --bg-card: #ffffff;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --text-dim: #656d76;
+    --accent: #0969da;
+    --accent-2: #0550ae;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --crit: #cf222e;
+    --info: #656d76;
   }
   * { box-sizing: border-box; min-width: 0; }
   body {
@@ -60,6 +105,33 @@
   }
   header h1::before { content: "📧"; font-size: 22px; }
   header p { margin: 4px 0 0; color: var(--text-dim); font-size: 13px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+  /* Selettore tema Auto / Chiaro / Scuro */
+  .theme-switch {
+    display: inline-flex; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; background: var(--bg);
+  }
+  .theme-switch button {
+    background: none; border: none; color: var(--text-dim);
+    padding: 6px 12px; font-size: 13px; cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .theme-switch button:last-child { border-right: none; }
+  .theme-switch button:hover { color: var(--text); }
+  .theme-switch button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent); font-weight: 600;
+  }
+
+  /* Footer crediti e licenza */
+  .site-footer {
+    max-width: 1100px; margin: 8px auto 0; padding: 20px 24px 32px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12.5px; line-height: 1.7;
+  }
+  .site-footer a { color: var(--accent); text-decoration: none; }
+  .site-footer a:hover { text-decoration: underline; }
 
   main { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
@@ -196,6 +268,34 @@
   .badge.critical { background: color-mix(in srgb, var(--crit) 20%, transparent); color: var(--crit); }
   .badge.info { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--text-dim); }
   .badge.unknown { background: color-mix(in srgb, var(--info) 20%, transparent); color: var(--text-dim); }
+
+  /* ---- Card "Analisi EML": evidenziata, colore in base all'esito ---- */
+  .eml-card { border-width: 2px; }
+  .eml-card.ok       { border-color: var(--ok); }
+  .eml-card.info     { border-color: var(--accent); }
+  .eml-card.warning  { border-color: var(--warn); }
+  .eml-card.critical { border-color: var(--crit); }
+  .eml-card .card-header { background: var(--bg-elev); }
+  .eml-verdict {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px; border-radius: 8px; margin-bottom: 14px;
+    border-left: 5px solid;
+  }
+  .eml-verdict .v-icon { font-size: 26px; line-height: 1; flex-shrink: 0; }
+  .eml-verdict .v-title { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .eml-verdict .v-text { font-size: 13.5px; }
+  .eml-verdict.ok       { background: color-mix(in srgb, var(--ok) 14%, transparent);     border-color: var(--ok); }
+  .eml-verdict.ok .v-title       { color: var(--ok); }
+  .eml-verdict.info     { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: var(--accent); }
+  .eml-verdict.info .v-title     { color: var(--accent); }
+  .eml-verdict.warning  { background: color-mix(in srgb, var(--warn) 14%, transparent);   border-color: var(--warn); }
+  .eml-verdict.warning .v-title  { color: var(--warn); }
+  .eml-verdict.critical { background: color-mix(in srgb, var(--crit) 16%, transparent);   border-color: var(--crit); }
+  .eml-verdict.critical .v-title { color: var(--crit); }
+  .badge.eml-info { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+  .eml-sel-ok   { color: var(--accent) !important; }
+  .eml-sel-info { color: var(--accent) !important; }
+  .eml-sel-crit { color: var(--crit) !important; }
 
   .issue-list { margin: 0; padding: 0; list-style: none; }
   .issue {
@@ -423,8 +523,15 @@
 </head>
 <body>
 <header>
-  <h1>Mail DNS Check</h1>
-  <p>Verifica SPF · DKIM · DMARC · MX con analisi dettagliata</p>
+  <div>
+    <h1>Mail DNS Check</h1>
+    <p>Verifica SPF · DKIM · DMARC · MX con analisi dettagliata</p>
+  </div>
+  <div class="theme-switch" role="group" aria-label="Tema">
+    <button type="button" data-theme-choice="auto" title="Segue il tema del sistema">🖥️ Auto</button>
+    <button type="button" data-theme-choice="light">☀️ Chiaro</button>
+    <button type="button" data-theme-choice="dark">🌙 Scuro</button>
+  </div>
 </header>
 
 <main id="main">
@@ -475,9 +582,32 @@
   <div id="result"></div>
 </main>
 
+<footer class="site-footer">
+  <div><strong>Mail DNS Check</strong> · Copyright © 2026 <a href="https://github.com/Leproide" target="_blank" rel="noopener">Leproide</a></div>
+  <div>Rilasciato con licenza <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU GPL-3.0</a></div>
+</footer>
+
 <!-- html2pdf.js, caricato solo quando si clicca su Scarica PDF -->
 <script>
 const $ = (s) => document.querySelector(s);
+
+// ---------- Selettore tema (Auto / Chiaro / Scuro) ----------
+// Auto = nessun data-theme: il CSS segue prefers-color-scheme del sistema.
+// La scelta e' salvata in localStorage solo come preferenza di questo browser.
+function applyTheme(choice) {
+  const root = document.documentElement;
+  if (choice === 'light' || choice === 'dark') root.setAttribute('data-theme', choice);
+  else root.removeAttribute('data-theme');
+  try {
+    if (choice === 'auto') localStorage.removeItem('maildns-theme');
+    else localStorage.setItem('maildns-theme', choice);
+  } catch (e) { /* storage non disponibile: la scelta vale solo per la sessione */ }
+  document.querySelectorAll('[data-theme-choice]').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.themeChoice === choice)));
+}
+document.querySelectorAll('[data-theme-choice]').forEach(b =>
+  b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
+applyTheme(document.documentElement.getAttribute('data-theme') || 'auto');
 
 let lastReportData = null;
 let parsedEmlData = null; // { domain, selectors, content }
@@ -532,10 +662,20 @@ async function handleEmlFile(file) {
     parsedEmlData = { file, ...parsed };
 
     let dom = parsed.domain || '(non rilevato)';
-    let sels = parsed.selectors.length ? parsed.selectors.join(', ') : '(nessuno trovato)';
+    // testo + colore: firmato (blu), non firmato interno (blu), non firmato esterno (rosso)
+    let sels, selCls = 'eml-sel-ok';
+    if (parsed.selectors.length) {
+      sels = parsed.selectors.join(', ');
+    } else if (parsed.dkimSigs.length) {
+      sels = '(firma non allineata al dominio)'; selCls = 'eml-sel-crit';
+    } else if (parsed.internal) {
+      sels = '(nessuna firma nel messaggio · posta interna)'; selCls = 'eml-sel-info';
+    } else {
+      sels = '(nessuna firma nel messaggio)'; selCls = 'eml-sel-crit';
+    }
     emlText.innerHTML = `
       <div class="title">📧 ${escapeHtml(file.name)}</div>
-      <div class="desc">Dominio rilevato: <code style="color:var(--accent)">${escapeHtml(dom)}</code> · Selettori DKIM: <code style="color:var(--accent)">${escapeHtml(sels)}</code></div>`;
+      <div class="desc">Dominio rilevato: <code style="color:var(--accent)">${escapeHtml(dom)}</code> · Selettori DKIM: <code class="${selCls}">${escapeHtml(sels)}</code></div>`;
     emlClearBtn.style.display = '';
 
     // autofill dominio se vuoto o se l'utente non lo ha toccato esplicitamente
@@ -551,7 +691,7 @@ async function handleEmlFile(file) {
  * Parsing minimale degli header EML:
  *  - dominio: priorità From: header (5322.From, quello rilevante per DMARC),
  *             fallback su Return-Path / Sender / DKIM-Signature d=
- *  - selettori: tutti gli s= dagli header DKIM-Signature / ARC-Message-Signature
+ *  - selettori: s= dagli header DKIM-Signature con d= = dominio (ARC escluso)
  */
 function parseEmlHeaders(content) {
   // RFC 5322 header unfolding: righe successive con WSP iniziale fanno parte dell'header precedente
@@ -584,18 +724,50 @@ function parseEmlHeaders(content) {
   }
   if (domain) domain = domain.replace(/[.>;,]+$/,'');
 
-  // selettori: tutti gli s= negli header DKIM-Signature / ARC-Message-Signature
-  const sels = new Set();
-  const sigLines = unfolded.match(/^(?:DKIM-Signature|ARC-Message-Signature):[^\r\n]+/gim) || [];
-  sigLines.forEach(line => {
-    const matches = line.matchAll(/(?:^|[\s;])s=([^;\s]+)/gi);
-    for (const m of matches) {
-      const s = m[1].trim().replace(/[.>;,]+$/,'');
-      if (/^[A-Za-z0-9_.\-]{1,63}$/.test(s)) sels.add(s);
-    }
-  });
+  // Firme: solo DKIM-Signature identifica la chiave del mittente (<s>._domainkey.<d>).
+  // ARC-Message-Signature è apposta dai server intermedi (gateway/antispam):
+  // selettore e dominio appartengono a loro, quindi viene solo mostrata come info.
+  const headerBlock = unfolded.split(/\r?\n\r?\n/)[0];
+  const parseSig = (body) => {
+    const tags = {};
+    body.split(';').forEach(kv => {
+      const i = kv.indexOf('=');
+      if (i < 0) return;
+      tags[kv.slice(0, i).trim().toLowerCase()] = kv.slice(i + 1).replace(/\s+/g, '');
+    });
+    const s = (tags.s || '').replace(/[.>;,]+$/, '');
+    const d = (tags.d || '').toLowerCase().replace(/[.>;,]+$/, '');
+    if (!/^[A-Za-z0-9_.\-]{1,63}$/.test(s) || !/^[a-z0-9.\-]+\.[a-z]{2,}$/.test(d)) return null;
+    return { s, d };
+  };
+  const dkimSigs = [], arcSigs = [];
+  const seen = new Set();
+  for (const m of headerBlock.matchAll(/^(DKIM-Signature|ARC-Message-Signature):([^\r\n]+)/gim)) {
+    const sig = parseSig(m[2]);
+    if (!sig) continue;
+    const isDkim = m[1].toLowerCase() === 'dkim-signature';
+    const key = (isDkim ? 'k|' : 'a|') + sig.s + '|' + sig.d;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    (isDkim ? dkimSigs : arcSigs).push(sig);
+  }
 
-  return { domain, selectors: Array.from(sels) };
+  // selettori utilizzabili: solo quelli con d= uguale al dominio rilevato
+  const sels = new Set(dkimSigs.filter(x => !domain || x.d === domain).map(x => x.s));
+
+  // Posta interna: un solo dominio mittente e tutti i destinatari To/Cc nello stesso dominio
+  const addrDomains = (name) => {
+    const out = new Set();
+    for (const m of headerBlock.matchAll(new RegExp('^' + name + ':([^\\r\\n]*)', 'gim'))) {
+      for (const a of m[1].matchAll(/[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g)) out.add(a[1].toLowerCase());
+    }
+    return Array.from(out);
+  };
+  const fromDoms = addrDomains('From');
+  const rcptDoms = [...new Set([...addrDomains('To'), ...addrDomains('Cc')])];
+  const internal = fromDoms.length === 1 && rcptDoms.length > 0 && rcptDoms.every(x => x === fromDoms[0]);
+
+  return { domain, selectors: Array.from(sels), dkimSigs, arcSigs, internal };
 }
 
 $('#check-form').addEventListener('submit', async (e) => {
@@ -928,6 +1100,103 @@ function renderDkim(d) {
   return html;
 }
 
+/**
+ * Analisi del messaggio EML caricato: unica fonte per card HTML e PDF.
+ * Esiti:
+ *   ok       -> firmato DKIM con d= del dominio e chiave trovata nel DNS
+ *   info     -> non firmato ma posta interna (normale su M365)
+ *   warning  -> firmato, ma chiave del selettore non trovata nel DNS
+ *   critical -> non firmato e inviato all'esterno, oppure firma non allineata
+ * Ogni voce ha `html` (pagina) e `text` (PDF, testo semplice).
+ */
+function emlAnalysis(d) {
+  const e = d.eml;
+  if (!e) return null;
+  const dom = d.domain;
+  const keys = (d.dkim && d.dkim.found) ? d.dkim.found.filter(f => f.tags && f.tags.p) : [];
+  const keyNames = keys.map(f => f.selector);
+  const sigTxt = (l) => l.map(x => `${x.s} (d=${x.d})`).join(', ');
+  const sigHtml = (l) => l.map(x => `<code>${escapeHtml(x.s)}</code> (d=${escapeHtml(x.d)})`).join(', ');
+  const aligned = (e.dkim_signatures || []).filter(x => x.d === dom);
+  const foreign = (e.dkim_signatures || []).filter(x => x.d !== dom);
+  const keysSentence = keys.length
+    ? { html: `Le chiavi DKIM del dominio sono pubblicate nel DNS (${keys.length}: <code>${keyNames.map(escapeHtml).join(', ')}</code>), quindi il problema è nell'invio, non nel DNS.`,
+        text: `Le chiavi DKIM del dominio sono pubblicate nel DNS (${keys.length}: ${keyNames.join(', ')}), quindi il problema è nell'invio, non nel DNS.` }
+    : { html: 'Nessuna chiave DKIM trovata nel DNS con la lista di selettori comuni: DKIM non risulta configurato per il dominio.',
+        text: 'Nessuna chiave DKIM trovata nel DNS con la lista di selettori comuni: DKIM non risulta configurato per il dominio.' };
+
+  let status, title, html, text;
+  if (aligned.length) {
+    const missing = aligned.filter(x => !keyNames.includes(x.s));
+    if (!missing.length) {
+      status = 'ok'; title = 'Messaggio firmato DKIM';
+      html = `Firma presente con dominio allineato: ${sigHtml(aligned)}. La chiave pubblica corrispondente è nel DNS (vedi sezione DKIM).`;
+      text = `Firma presente con dominio allineato: ${sigTxt(aligned)}. La chiave pubblica corrispondente è nel DNS (vedi sezione DKIM).`;
+    } else {
+      status = 'warning'; title = 'Firma presente, chiave non trovata nel DNS';
+      html = `Il messaggio è firmato con ${sigHtml(missing)}, ma nel DNS non c'è la chiave di quel selettore: la verifica DKIM fallirà presso i destinatari. Pubblica il record <code>&lt;selettore&gt;._domainkey.${escapeHtml(dom)}</code> o correggi il selettore sul server di invio.`;
+      text = `Il messaggio è firmato con ${sigTxt(missing)}, ma nel DNS non c'è la chiave di quel selettore: la verifica DKIM fallirà presso i destinatari. Pubblica il record <selettore>._domainkey.${dom} o correggi il selettore sul server di invio.`;
+    }
+  } else if (foreign.length) {
+    status = 'critical'; title = 'Firma DKIM non allineata al dominio';
+    html = `Il messaggio è firmato solo da domini diversi dal mittente: ${sigHtml(foreign)}. La firma può essere valida, ma non conta per l'allineamento DMARC di <strong>${escapeHtml(dom)}</strong>. Configura sul servizio di invio la firma con il dominio del mittente (custom DKIM).`;
+    text = `Il messaggio è firmato solo da domini diversi dal mittente: ${sigTxt(foreign)}. La firma può essere valida, ma non conta per l'allineamento DMARC di ${dom}. Configura sul servizio di invio la firma con il dominio del mittente (custom DKIM).`;
+  } else if (e.internal) {
+    status = 'info'; title = 'Nessuna firma nel messaggio · posta interna';
+    html = `Mittente e destinatari sono nello stesso dominio (<strong>${escapeHtml(dom)}</strong>): è un messaggio interno. Microsoft 365, come altri provider, non firma DKIM la posta che resta nel tenant, quindi è un comportamento normale. Per verificare la firma, analizza un messaggio inviato a un destinatario esterno.`;
+    text = `Mittente e destinatari sono nello stesso dominio (${dom}): è un messaggio interno. Microsoft 365, come altri provider, non firma DKIM la posta che resta nel tenant, quindi è un comportamento normale. Per verificare la firma, analizza un messaggio inviato a un destinatario esterno.`;
+  } else {
+    status = 'critical'; title = 'Nessuna firma nel messaggio';
+    const rc = (e.rcpt_domains || []).filter(x => x !== dom);
+    const to = rc.length ? ` (destinatari: ${rc.join(', ')})` : '';
+    html = `Il messaggio è stato inviato all'esterno${escapeHtml(to)} senza header <code>DKIM-Signature</code>: i destinatari non possono verificarne l'autenticità con DKIM e il passaggio DMARC dipende solo da SPF. ${keysSentence.html} <br>Verifica che la firma DKIM sia abilitata sul server o servizio che ha inviato il messaggio (M365: Defender → Email authentication → DKIM; oppure gestionale, sito web, stampanti, servizi di invio esterni).`;
+    text = `Il messaggio è stato inviato all'esterno${to} senza header DKIM-Signature: i destinatari non possono verificarne l'autenticità con DKIM e il passaggio DMARC dipende solo da SPF. ${keysSentence.text} Verifica che la firma DKIM sia abilitata sul server o servizio che ha inviato il messaggio (M365: Defender > Email authentication > DKIM; oppure gestionale, sito web, stampanti, servizi di invio esterni).`;
+  }
+
+  // dettagli secondari
+  const notes = [];
+  if (aligned.length && foreign.length) {
+    notes.push({ level: 'info',
+      html: `Altre firme con dominio diverso (non usate per l'allineamento): ${sigHtml(foreign)}`,
+      text: `Altre firme con dominio diverso (non usate per l'allineamento): ${sigTxt(foreign)}` });
+  }
+  if (e.arc_signatures && e.arc_signatures.length) {
+    notes.push({ level: 'info',
+      html: `Firme ARC ignorate (apposte da server intermedi, non sono selettori DKIM del mittente): ${sigHtml(e.arc_signatures)}`,
+      text: `Firme ARC ignorate (apposte da server intermedi, non sono selettori DKIM del mittente): ${sigTxt(e.arc_signatures)}` });
+  }
+  const facts = [
+    ['Mittente', (e.from_domains || []).join(', ') || 'n/d'],
+    ['Destinatari (To/Cc)', (e.rcpt_domains || []).join(', ') || 'n/d'],
+    ['Tipo', e.internal ? 'Interno (stesso dominio)' : 'Esterno'],
+    ['Firme DKIM', e.dkim_signatures && e.dkim_signatures.length ? sigTxt(e.dkim_signatures) : 'nessuna'],
+  ];
+  return { status, title, html, text, notes, facts };
+}
+
+/** Card evidenziata "Analisi del messaggio" (solo se è stato caricato un EML). */
+function renderEmlCard(d) {
+  const a = emlAnalysis(d);
+  if (!a) return '';
+  const icon = { ok: '✅', info: 'ℹ️', warning: '⚠️', critical: '🔴' }[a.status];
+  const badgeHtml = a.status === 'info'
+    ? '<span class="badge eml-info">Info</span>'
+    : badge(a.status);
+  let html = `<div class="card eml-card ${a.status}" id="eml-analysis">
+    <div class="card-header"><h2>📎 Analisi del messaggio (EML)</h2>${badgeHtml}</div>
+    <div class="card-body">
+      <div class="eml-verdict ${a.status}">
+        <span class="v-icon">${icon}</span>
+        <div><div class="v-title">${escapeHtml(a.title)}</div><div class="v-text">${a.html}</div></div>
+      </div>
+      <dl class="kv">${a.facts.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('')}</dl>`;
+  if (a.notes.length) {
+    html += `<ul class="issue-list" style="margin-top:14px">${a.notes.map(n => `
+      <li class="issue ${n.level}"><span class="issue-icon">${issueIcon(n.level)}</span><span>${n.html}</span></li>`).join('')}</ul>`;
+  }
+  return html + '</div></div>';
+}
+
 function render(d) {
   const out = $('#result');
   const overallMsg = {
@@ -954,11 +1223,7 @@ function render(d) {
     <span>Timestamp: <code>${escapeHtml(d.timestamp)}</code></span>
   </div>`;
 
-  if (d.eml_selectors_extracted && d.eml_selectors_extracted.length) {
-    html += `<div class="meta-bar">
-      <span>📎 Selettori estratti dall'EML: <code>${d.eml_selectors_extracted.map(escapeHtml).join(', ')}</code></span>
-    </div>`;
-  }
+  html += renderEmlCard(d);
 
   const sections = [
     {key:'mx',    title:'📬 MX',    desc:'Mail Exchanger · server che ricevono posta per il dominio',     renderer: renderMx},
@@ -1096,7 +1361,7 @@ function pdfIssues(issues) {
     stack: issues.map(i => {
       const c = PDF_COLORS[i.level] || PDF_COLORS.neutral;
       const tag = i.level.toUpperCase();
-      return {
+      return pdfKeep({
         table: { widths: ['*'], body: [[ {
           text: [
             { text: tag + '  ', bold: true, color: c.text, fontSize: 8 },
@@ -1110,14 +1375,14 @@ function pdfIssues(issues) {
           paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
         },
         margin: [0, 0, 0, 4],
-      };
+      }); // ogni avviso resta intero (se sta in una pagina)
     }),
     margin: [0, 4, 0, 4],
   };
 }
 
 function pdfKV(rows) {
-  return {
+  return pdfKeep({
     table: {
       widths: [120, '*'],
       body: rows.map(([k, v]) => [
@@ -1127,11 +1392,120 @@ function pdfKV(rows) {
     },
     layout: 'noBorders',
     margin: [0, 0, 0, 6],
-  };
+  });
+}
+
+/* ------------------------------------------------------------------
+ * Impaginazione PDF: evita blocchi spezzati al cambio pagina.
+ * - ogni blocco logico (record, issue, tabella KV, chip, selettore DKIM)
+ *   e' marcato `unbreakable`: se non entra nello spazio rimasto, pdfmake
+ *   lo sposta intero alla pagina successiva;
+ * - titoli ed etichette sono marcati `keepWithNext` (proprieta' nostra):
+ *   pdfKeepTogether() li fonde con il blocco seguente in un unico stack
+ *   unbreakable, cosi' un titolo non resta mai orfano a fondo pagina;
+ * - blocchi stimati piu' alti di una pagina restano spezzabili: pdfmake
+ *   scarterebbe il contenuto, vedi PDF_MAX_BLOCK_HEIGHT.
+ * ------------------------------------------------------------------ */
+/* ATTENZIONE: pdfmake SCARTA in silenzio un blocco unbreakable piu' alto di
+ * una pagina. Per questo un blocco viene reso unbreakable solo se la sua
+ * altezza stimata (per eccesso) sta ampiamente in una pagina A4.
+ * Area utile A4 con i margini del report: 842 - 36 - 50 = 756 pt. */
+const PDF_MAX_BLOCK_HEIGHT = 520;   // pt, soglia prudente (~70% della pagina utile)
+const PDF_CHARS_PER_LINE   = 85;    // caratteri per riga a piena larghezza, per eccesso
+
+function pdfMarginV(m) {
+  if (typeof m === 'number') return 2 * m;
+  if (Array.isArray(m)) return m.length === 4 ? m[1] + m[3] : m.length === 2 ? 2 * m[1] : 0;
+  return 0;
+}
+
+/** Testo "piatto" di un nodo text (stringa, array di run, run annidati). */
+function pdfFlatText(t) {
+  if (t == null) return '';
+  if (typeof t === 'string' || typeof t === 'number') return String(t);
+  if (Array.isArray(t)) return t.map(pdfFlatText).join('');
+  if (typeof t === 'object') return pdfFlatText(t.text);
+  return '';
+}
+
+/**
+ * Stima per eccesso dell'altezza (pt) di un nodo pdfmake.
+ * widthRatio: frazione della larghezza pagina disponibile (colonne).
+ */
+function pdfEstimateHeight(node, fontSize = 9, widthRatio = 1) {
+  if (node == null) return 0;
+  if (typeof node === 'string' || typeof node === 'number') {
+    const cpl = Math.max(10, Math.floor(PDF_CHARS_PER_LINE * widthRatio * 9 / fontSize));
+    const lines = String(node).split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / cpl)), 0);
+    return lines * fontSize * 1.35;
+  }
+  if (Array.isArray(node)) return node.reduce((n, x) => n + pdfEstimateHeight(x, fontSize, widthRatio), 0);
+  if (typeof node !== 'object') return 0;
+  const fs = node.fontSize || fontSize;
+  let hgt = pdfMarginV(node.margin);
+  if (node.stack) hgt += pdfEstimateHeight(node.stack, fs, widthRatio);
+  else if (node.columns) {
+    const cols = node.columns.length || 1;
+    hgt += Math.max(0, ...node.columns.map(c => pdfEstimateHeight(c, fs, widthRatio / cols)));
+  } else if (node.table) {
+    const rows = node.table.body || [];
+    const cols = (rows[0] || []).length || 1;
+    hgt += rows.reduce((n, r) => n + 8 + Math.max(0, ...r.map(c => pdfEstimateHeight(c, fs, widthRatio / cols))), 0);
+  } else if ('text' in node) {
+    hgt += pdfEstimateHeight(pdfFlatText(node.text), fs, widthRatio);
+  }
+  return hgt;
+}
+
+/** True se il nodo sta sicuramente in una pagina (e puo' essere unbreakable). */
+function pdfFitsPage(node) { return pdfEstimateHeight(node) <= PDF_MAX_BLOCK_HEIGHT; }
+
+/** Marca un nodo come unbreakable se sta in una pagina, altrimenti lo lascia spezzabile. */
+function pdfKeep(node) {
+  if (node && typeof node === 'object') {
+    if (pdfFitsPage(node)) { if (node.unbreakable === undefined) node.unbreakable = true; }
+    else node.unbreakable = false; // troppo alto: deve potersi spezzare
+  }
+  return node;
+}
+
+/** Marca un nodo (titolo/etichetta) da tenere insieme al blocco successivo. */
+function pdfKeepWithNext(node) { node.keepWithNext = true; return node; }
+
+/**
+ * Fonde ogni nodo `keepWithNext` con il successivo in uno stack unbreakable
+ * (catene di piu' titoli consecutivi incluse). Gli altri nodi vengono
+ * marcati unbreakable tramite pdfKeep().
+ */
+function pdfKeepTogether(nodes) {
+  const out = [];
+  let pending = [];
+  for (const n of nodes) {
+    if (!n) continue;
+    if (n.keepWithNext) { delete n.keepWithNext; pending.push(n); continue; }
+    if (pending.length) {
+      const group = { stack: [...pending, n] };
+      // se il blocco seguente e' troppo grande, teniamo insieme il titolo
+      // almeno con l'inizio del blocco: lo stack resta spezzabile
+      if (pdfFitsPage(group)) group.unbreakable = true;
+      else n.unbreakable = false; // blocco troppo alto: il gruppo resta spezzabile
+      out.push(group);
+      pending = [];
+    } else {
+      out.push(pdfKeep(n));
+    }
+  }
+  if (pending.length) out.push({ stack: pending, unbreakable: true });
+  return out;
+}
+
+/** Sezione completa: titolo legato al primo blocco + blocchi non spezzabili. */
+function pdfSection(title, status, blocks) {
+  return pdfKeepTogether([pdfKeepWithNext(pdfSectionHeader(title, status)), ...blocks]);
 }
 
 function pdfRecordBox(label, text) {
-  return {
+  return pdfKeep({
     table: { widths: ['*'], body: [[ {
       stack: [
         { text: label, color: PDF_COLORS.accent, fontSize: 8, bold: true, margin: [0,0,0,3] },
@@ -1145,7 +1519,7 @@ function pdfRecordBox(label, text) {
       paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
     },
     margin: [0, 0, 0, 6],
-  };
+  });
 }
 
 /**
@@ -1220,9 +1594,7 @@ function pdfLongTag(key, values, desc) {
       },
     ],
     margin: [0, 0, 0, 5],
-    /* unbreakable: false volutamente: se il p= di una chiave 2048-bit è troppo
-       lungo per stare in una pagina, deve poter andare a capo */
-    unbreakable: false,
+    // unbreakable deciso dal blocco contenitore (pdfKeep, in base all'altezza stimata)
   };
 }
 
@@ -1252,6 +1624,7 @@ function pdfTagsGrid(tags, descMap, longKeys = []) {
         ],
         columnGap: 6,
         margin: [0, 0, 0, 4],
+        unbreakable: true,
       });
     }
     stack.push(...cols);
@@ -1314,21 +1687,21 @@ function pdfSpfSection(spf) {
     stack.push({ text: 'Nessun record SPF.', italics: true, color: PDF_COLORS.dim, fontSize: 9 });
   }
   if (spf.redirect_chain && spf.redirect_chain.length) {
-    stack.push({ text: 'Catena redirect', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] });
+    stack.push(pdfKeepWithNext({ text: 'Catena redirect', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] }));
     spf.redirect_chain.forEach(c => {
-      stack.push({
+      stack.push(pdfKeepWithNext({
         text: [
           { text: c.from, bold: true }, ' >> redirect= ',
           { text: c.to, bold: true, color: PDF_COLORS.accent },
         ],
         fontSize: 9, margin: [0, 0, 0, 4],
-      });
+      }));
       if (c.record) stack.push(pdfRecordBox('TXT @ ' + c.to, c.record));
       else stack.push(pdfRecordBox('ERRORE', 'Nessun record v=spf1 su ' + c.to));
     });
   }
   if (spf.effective_record && spf.effective_domain) {
-    stack.push({ text: 'Record SPF effettivo (gestito su ' + spf.effective_domain + ')', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] });
+    stack.push(pdfKeepWithNext({ text: 'Record SPF effettivo (gestito su ' + spf.effective_domain + ')', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] }));
     stack.push(pdfRecordBox('TXT', spf.effective_record));
   }
   stack.push(pdfKV([
@@ -1339,7 +1712,7 @@ function pdfSpfSection(spf) {
       : 'mancante'],
   ]));
   if (spf.effective_mechanisms && spf.effective_mechanisms.length) {
-    stack.push({ text: 'Meccanismi del record effettivo (' + spf.effective_mechanisms.length + ' totali):', bold: true, fontSize: 9, color: PDF_COLORS.dim, margin: [0, 4, 0, 3] });
+    stack.push(pdfKeepWithNext({ text: 'Meccanismi del record effettivo (' + spf.effective_mechanisms.length + ' totali):', bold: true, fontSize: 9, color: PDF_COLORS.dim, margin: [0, 4, 0, 3] }));
     stack.push(pdfRecordBox('MECCANISMI', spf.effective_mechanisms.join('  ·  ')));
   }
   const issues = pdfIssues(spf.issues);
@@ -1383,7 +1756,7 @@ function pdfDmarcSection(dmarc) {
 
   // Tag parsing
   if (dmarc.tags && Object.keys(dmarc.tags).length) {
-    stack.push({ text: 'Tag parsing', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] });
+    stack.push(pdfKeepWithNext({ text: 'Tag parsing', bold: true, fontSize: 10, color: PDF_COLORS.dim, margin: [0, 6, 0, 4] }));
     const DMARC_DESC = { v:'Versione DMARC', p:'Policy dominio', sp:'Policy sottodomini', pct:'% applicazione',
                          rua:'Report aggregati', ruf:'Report forensi', adkim:'Allineamento DKIM', aspf:'Allineamento SPF',
                          fo:'Opzioni forensi', rf:'Formato', ri:'Intervallo' };
@@ -1397,7 +1770,7 @@ function pdfDmarcSection(dmarc) {
 
 function pdfDkimSection(dkim) {
   const stack = [];
-  stack.push({
+  stack.push(pdfKeepWithNext({
     text: [
       { text: 'Tentativi: ', color: PDF_COLORS.dim, fontSize: 9 },
       { text: String(dkim.tried), bold: true, fontSize: 9 },
@@ -1405,7 +1778,7 @@ function pdfDkimSection(dkim) {
       { text: String(dkim.count), bold: true, fontSize: 9 },
     ],
     margin: [0, 0, 0, 6],
-  });
+  }));
 
   if (dkim.count === 0) {
     const issues = pdfIssues([{ level: 'warning',
@@ -1435,7 +1808,7 @@ function pdfDkimSection(dkim) {
     const sIssues = pdfIssues(s.issues);
     if (sIssues) inner.push(sIssues);
 
-    stack.push({
+    stack.push(pdfKeep({
       table: { widths: ['*'], body: [[ { stack: inner, margin: [10, 8, 10, 8] } ]] },
       layout: {
         hLineColor: () => PDF_COLORS.neutral.border, vLineColor: () => PDF_COLORS.neutral.border,
@@ -1443,7 +1816,7 @@ function pdfDkimSection(dkim) {
         paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
       },
       margin: [0, 0, 0, 6],
-    });
+    }));
   });
   return stack;
 }
@@ -1482,28 +1855,24 @@ function buildPdfDoc(d) {
     },
   ];
 
-  if (d.eml_selectors_extracted && d.eml_selectors_extracted.length) {
-    content.push({
-      text: [
-        { text: 'Selettori estratti dall\'EML: ', color: PDF_COLORS.dim, fontSize: 8 },
-        { text: d.eml_selectors_extracted.join(', '), fontSize: 8, color: PDF_COLORS.accent },
-      ],
-      margin: [0, 0, 0, 10],
-    });
+  // Sezione Analisi EML (se caricato): stesso esito e testi della card a video
+  const emlA = emlAnalysis(d);
+  if (emlA) {
+    content.push(...pdfSection('Analisi del messaggio (EML)', emlA.status, [
+      pdfBox(
+        [ { text: emlA.title + '\n', fontSize: 12, bold: true }, { text: pdfSafe(emlA.text), fontSize: 9 } ],
+        emlA.status
+      ),
+      pdfKV(emlA.facts),
+      pdfIssues(emlA.notes.map(n => ({ level: n.level, msg: n.text }))),
+    ]));
   }
 
   // Sezioni
-  content.push(pdfSectionHeader('MX  ·  Mail Exchanger', d.mx.status));
-  content.push(...pdfMxSection(d.mx));
-
-  content.push(pdfSectionHeader('SPF  ·  Sender Policy Framework', d.spf.status));
-  content.push(...pdfSpfSection(d.spf));
-
-  content.push(pdfSectionHeader('DMARC  ·  Domain-based Message Authentication', d.dmarc.status));
-  content.push(...pdfDmarcSection(d.dmarc));
-
-  content.push(pdfSectionHeader('DKIM  ·  DomainKeys Identified Mail', d.dkim.status));
-  content.push(...pdfDkimSection(d.dkim));
+  content.push(...pdfSection('MX  ·  Mail Exchanger', d.mx.status, pdfMxSection(d.mx)));
+  content.push(...pdfSection('SPF  ·  Sender Policy Framework', d.spf.status, pdfSpfSection(d.spf)));
+  content.push(...pdfSection('DMARC  ·  Domain-based Message Authentication', d.dmarc.status, pdfDmarcSection(d.dmarc)));
+  content.push(...pdfSection('DKIM  ·  DomainKeys Identified Mail', d.dkim.status, pdfDkimSection(d.dkim)));
 
   // Nota tecnica finale sul trailing dot dei nomi DNS
   content.push({

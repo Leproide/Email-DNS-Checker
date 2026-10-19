@@ -1,5 +1,24 @@
 <?php
 /**
+ * Mail DNS Check
+ * Copyright (C) 2026 Leproide
+ * Author: https://github.com/Leproide
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
  * maildns-check API
  * Endpoint unico: POST JSON { domain, selectors?, resolver?, eml? (base64) }
  * oppure multipart con file 'eml'
@@ -459,7 +478,13 @@ function analyze_dkim(string $resolver, string $domain, array $selectors): array
     foreach ($selectors as $s) {
         if (!is_valid_selector($s)) continue;
         $name  = $s.'._domainkey.'.$domain;
-        $txt   = normalize_txt(dig($resolver, 'TXT', $name));
+        // `dig +short TXT` segue i CNAME e stampa anche il nome del target come riga:
+        // usiamo la answer section completa e teniamo solo i record di tipo TXT.
+        $txtRaw = [];
+        foreach (dig_answer($resolver, 'TXT', $name) as $rr) {
+            if ($rr['type'] === 'TXT') $txtRaw[] = $rr['rdata'];
+        }
+        $txt   = normalize_txt($txtRaw);
         $cname = dig($resolver, 'CNAME', $name);
         if (!$txt && !$cname) continue;
 
@@ -501,6 +526,11 @@ function analyze_dkim(string $resolver, string $domain, array $selectors): array
                 }
             }
         }
+        if (!$rec && $cname) {
+            // CNAME presente ma nessuna chiave al target (es. M365: il selettore
+            // inattivo viene pubblicato solo alla rotazione delle chiavi).
+            $entry['issues'][] = ['level'=>'info','msg'=>'CNAME presente ma nessuna chiave DKIM pubblicata sul target. Normale per il selettore inattivo di Microsoft 365 (verrà popolato alla prossima rotazione).'];
+        }
         $found[] = $entry;
     }
     return [
@@ -536,20 +566,80 @@ function analyze_mx(string $resolver, string $domain): array {
 }
 
 // ---------- ESTRAZIONE SELETTORI DA EML ----------
-function extract_selectors_from_eml(string $content): array {
-    $sels = [];
-    $content = preg_replace('/\r?\n[ \t]+/', ' ', $content);
-    if (preg_match_all('/^(?:DKIM-Signature|ARC-Message-Signature):.*$/mi', $content, $m)) {
-        foreach ($m[0] as $line) {
-            if (preg_match_all('/(?:^|[\s;])s=([^;\s]+)/i', $line, $sm)) {
-                foreach ($sm[1] as $s) {
-                    $s = trim($s);
-                    if (is_valid_selector($s)) $sels[$s] = true;
+/**
+ * Estrae le firme dall'EML.
+ * - Solo DKIM-Signature e' una firma DKIM del mittente: il record della chiave
+ *   sta in <s>._domainkey.<d>, quindi s= va sempre letto insieme al suo d=.
+ * - ARC-Message-Signature / ARC-Seal sono firme dei server intermedi (gateway,
+ *   filtri antispam): selettore e dominio NON appartengono al mittente,
+ *   vengono solo riportati a titolo informativo e mai interrogati.
+ *
+ * @return array{dkim: list<array{s:string,d:string}>, arc: list<array{s:string,d:string}>}
+ */
+function extract_signatures_from_eml(string $content): array {
+    $out = ['dkim' => [], 'arc' => []];
+    // limitiamo agli header (fino alla prima riga vuota) ed eseguiamo l'unfolding RFC 5322
+    $parts   = preg_split('/\r?\n\r?\n/', $content, 2);
+    $headers = preg_replace('/\r?\n[ \t]+/', ' ', $parts[0] ?? '');
+    if (!preg_match_all('/^(DKIM-Signature|ARC-Message-Signature):(.*)$/mi', $headers, $m, PREG_SET_ORDER)) {
+        return $out;
+    }
+    $seen = [];
+    foreach ($m as $h) {
+        $kind = strcasecmp($h[1], 'DKIM-Signature') === 0 ? 'dkim' : 'arc';
+        $tags = [];
+        foreach (explode(';', $h[2]) as $kv) {
+            $kv = trim($kv);
+            if ($kv === '' || strpos($kv, '=') === false) continue;
+            [$k, $v] = array_map('trim', explode('=', $kv, 2));
+            $tags[strtolower($k)] = preg_replace('/\s+/', '', $v);
+        }
+        $sel = $tags['s'] ?? '';
+        $dom = strtolower(rtrim($tags['d'] ?? '', '.'));
+        if (!is_valid_selector($sel) || !is_valid_domain($dom)) continue;
+        $key = $kind.'|'.$sel.'|'.$dom;
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $out[$kind][] = ['s' => $sel, 'd' => $dom];
+    }
+    return $out;
+}
+
+/**
+ * Domini degli indirizzi negli header From e To/Cc del messaggio.
+ * Usato per capire se il messaggio e' interno (stesso dominio): Microsoft 365
+ * e altri provider non applicano la firma DKIM alla posta interna al tenant.
+ *
+ * @return array{from: list<string>, rcpt: list<string>}
+ */
+function eml_address_domains(string $content): array {
+    $parts   = preg_split('/\r?\n\r?\n/', $content, 2);
+    $headers = preg_replace('/\r?\n[ \t]+/', ' ', $parts[0] ?? '');
+    $domainsOf = function (string $name) use ($headers): array {
+        $out = [];
+        if (preg_match_all('/^'.$name.':(.*)$/mi', $headers, $m)) {
+            foreach ($m[1] as $line) {
+                if (preg_match_all('/[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})/', $line, $am)) {
+                    foreach ($am[1] as $d) {
+                        $d = strtolower(rtrim($d, '.'));
+                        if (is_valid_domain($d)) $out[] = $d;
+                    }
                 }
             }
         }
-    }
-    return array_keys($sels);
+        return $out;
+    };
+    return [
+        'from' => array_values(array_unique($domainsOf('From'))),
+        'rcpt' => array_values(array_unique(array_merge($domainsOf('To'), $domainsOf('Cc')))),
+    ];
+}
+
+/** Interno = un solo dominio mittente e tutti i destinatari To/Cc nello stesso dominio. */
+function eml_is_internal(array $addr): bool {
+    if (count($addr['from']) !== 1 || !$addr['rcpt']) return false;
+    foreach ($addr['rcpt'] as $d) if ($d !== $addr['from'][0]) return false;
+    return true;
 }
 
 // ---------- INPUT ----------
@@ -589,11 +679,27 @@ if (stripos($contentType, 'application/json') !== false) {
 if ($domain === '' || !is_valid_domain($domain)) bail(400, 'Dominio mancante o non valido');
 if (!is_valid_resolver($resolver))               bail(400, 'Resolver non valido (IP atteso)');
 
-$extractedFromEml = [];
+$extractedFromEml = [];   // selettori DKIM con d= uguale al dominio analizzato
+$emlInfo = null;
 if ($emlContent !== '') {
-    $extractedFromEml = extract_selectors_from_eml($emlContent);
+    $sigs = extract_signatures_from_eml($emlContent);
+    foreach ($sigs['dkim'] as $sg) {
+        if ($sg['d'] === $domain) $extractedFromEml[] = $sg['s'];
+    }
+    $extractedFromEml = array_values(array_unique($extractedFromEml));
+    $addr = eml_address_domains($emlContent);
+    $emlInfo = [
+        'dkim_signed'     => count($sigs['dkim']) > 0,
+        'internal'        => eml_is_internal($addr), // mittente e destinatari nello stesso dominio
+        'from_domains'    => $addr['from'],
+        'rcpt_domains'    => $addr['rcpt'],
+        'dkim_signatures' => $sigs['dkim'],   // tutte le DKIM-Signature (anche d= di terzi)
+        'arc_signatures'  => $sigs['arc'],    // ignorate per la verifica DKIM
+    ];
 }
 
+// Selettori manuali > selettori dall'EML (allineati al dominio) > lista di default.
+// Se l'EML non contiene firme DKIM per il dominio, si ripiega sulla lista di default.
 if (!$selectors) {
     $selectors = $extractedFromEml ?: DEFAULT_SELECTORS;
 }
@@ -607,6 +713,7 @@ $out = [
     'resolver'                => $resolver,
     'timestamp'               => gmdate('c'),
     'eml_selectors_extracted' => $extractedFromEml,
+    'eml'                     => $emlInfo,
     'selectors_used'          => $selectors,
     'mx'    => analyze_mx($resolver, $domain),
     'spf'   => analyze_spf($resolver, $domain),
