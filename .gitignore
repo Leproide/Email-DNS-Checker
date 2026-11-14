@@ -1,0 +1,12 @@
+# Local/editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Test artifacts
+*.eml
+*.pdf
+*.log
