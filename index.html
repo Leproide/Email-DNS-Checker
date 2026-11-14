@@ -1035,7 +1035,11 @@ function parseEmlHeaders(content) {
   const unfolded = content.replace(/\r?\n[ \t]+/g, ' ');
   const headerBlock = unfolded.split(/\r?\n\r?\n/)[0];
 
+  // Address headers are cut to ADDR_MAX chars before the address regexes run:
+  // on a huge crafted line they would take quadratic time and freeze the tab.
+  const ADDR_MAX = 8000;
   const domainFromAddrLine = (line) => {
+    line = line.slice(0, ADDR_MAX);
     let m = line.match(/<([A-Za-z0-9._+\-]+)@([A-Za-z0-9.\-]+)>/);
     if (m) return m[2].toLowerCase();
     m = line.match(/([A-Za-z0-9._+\-]+)@([A-Za-z0-9.\-]+)/);
@@ -1092,7 +1096,7 @@ function parseEmlHeaders(content) {
   const addrDomains = (name) => {
     const out = new Set();
     for (const m of headerBlock.matchAll(new RegExp('^' + name + ':([^\\r\\n]*)', 'gim'))) {
-      for (const a of m[1].matchAll(/[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g)) out.add(a[1].toLowerCase());
+      for (const a of m[1].slice(0, ADDR_MAX).matchAll(/[A-Za-z0-9._%+\-]+@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})/g)) out.add(a[1].toLowerCase());
     }
     return Array.from(out);
   };
