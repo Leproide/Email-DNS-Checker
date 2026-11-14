@@ -42,6 +42,13 @@ const DEFAULT_SELECTORS = [
     'selector1','selector2',
     // Google Workspace
     'google',
+    // OVHcloud MX Plan / Zimbra (CNAME verso *.dkim.mail.ovh.net).
+    // Exchange / Email Pro usano ovhexNNNNNN-selectorN: ID per servizio, non elencabile.
+    'ovhmo-selector-1','ovhmo-selector-2',
+    // Fastmail (CNAME verso *.dkim.fmhosted.com; mesmtp = domini pre-2018)
+    'fm1','fm2','fm3','mesmtp',
+    // Hostinger Email (CNAME verso *.dkim.mail.hostinger.com)
+    'hostingermail-a','hostingermail-b','hostingermail-c',
     // Apple iCloud
     'sig1',
     // ProtonMail
@@ -58,11 +65,19 @@ const DEFAULT_SELECTORS = [
     'amazonses',
     // Postmark
     'pm',
-    // Brevo / Sendinblue
-    'mail1','mail2',
+    // Brevo / Sendinblue (brevo1/brevo2 = CNAME attuali; 'mail' TXT legacy gia' tra i generici)
+    'brevo1','brevo2','mail1','mail2',
+    // Mailjet
+    'mailjet',
+    // MailerLite (litesrv = nuova piattaforma, ml = Classic)
+    'litesrv','ml',
+    // Constant Contact
+    'ctct1','ctct2',
     // SendPulse
     'sendpulse',
-    // Klaviyo / ActiveCampaign / ConvertKit / Drip
+    // Klaviyo branded sending domain (km = marketing, kt = transazionale, kl/kl1/kl2 = legacy)
+    'km1','km2','kt1','kt2','kl','kl1','kl2',
+    // ActiveCampaign / ConvertKit / Drip
     'dkim2','ck1','drip',
     // Zendesk
     'zendesk1','zendesk2',

@@ -118,7 +118,8 @@ The card also lists sender/recipient domains, internal/external, DKIM signatures
 - `rua` and `ruf` are shown in dedicated boxes that support multiple values
 
 ### DKIM
-- Default list of about 60 selectors (M365, Google, common ESPs, date-based selectors)
+- Default list of about 75 selectors (M365, Google, OVHcloud MX Plan, Fastmail, Hostinger, common ESPs such as Brevo, Mailjet, MailerLite, Constant Contact and Klaviyo, date-based selectors)
+- Selectors that embed a per-account ID (e.g. OVHcloud Exchange / Email Pro `ovhexNNNNNN-selector1`, HubSpot `hs1-<id>`) cannot be guessed: upload an `.eml` or enter them as custom selectors
 - Selectors extracted from the uploaded EML file (aligned `DKIM-Signature` only, see above)
 - Custom selectors via text field
 - CNAME-delegated selectors (e.g. Microsoft 365 `selectorN-<tenant>._domainkey.<tenant>.<x>.dkim.mail.microsoft`) are followed correctly: only real TXT records are shown, the CNAME target is never mistaken for a TXT value

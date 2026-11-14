@@ -568,7 +568,7 @@
         <div>
           <label for="selectors">Selettori DKIM custom (opzionale, separati da virgola o spazio)</label>
           <textarea id="selectors" name="selectors" placeholder="selector1, selector2, google&#10;(vuoto = lista provider noti, o estratti dall'EML se caricato)"></textarea>
-          <div class="hint">Lascia vuoto per provare circa 60 selettori dei provider più comuni (M365, Google, ESP).</div>
+          <div class="hint">Lascia vuoto per provare circa 75 selettori dei provider più comuni (M365, Google, OVHcloud, Fastmail, ESP).</div>
         </div>
       </div>
     </div>
@@ -587,7 +587,7 @@
   <div>Rilasciato con licenza <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU GPL-3.0</a></div>
 </footer>
 
-<!-- html2pdf.js, caricato solo quando si clicca su Scarica PDF -->
+<!-- pdfmake (include/) viene caricato solo quando si clicca su Scarica PDF -->
 <script>
 const $ = (s) => document.querySelector(s);
 
@@ -1912,6 +1912,8 @@ function buildPdfDoc(d) {
     footer: (currentPage, pageCount) => ({
       columns: [
         { text: 'Mail DNS Check · ' + d.domain, color: PDF_COLORS.dim, fontSize: 8, alignment: 'left', margin: [36, 0, 0, 0] },
+        // sito dell'istanza (link cliccabile nel PDF)
+        { text: 'https://muninn.ovh/maildns/', link: 'https://muninn.ovh/maildns/', color: PDF_COLORS.accent, fontSize: 8, alignment: 'center' },
         { text: 'Pagina ' + currentPage + ' di ' + pageCount, color: PDF_COLORS.dim, fontSize: 8, alignment: 'right', margin: [0, 0, 36, 0] },
       ],
       margin: [0, 20, 0, 0],
